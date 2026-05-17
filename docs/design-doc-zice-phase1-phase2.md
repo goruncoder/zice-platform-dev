@@ -36,7 +36,15 @@
 - [**Phase 3 Overview**](#phase-3-overview)
 24. [Notifications System](#24-notifications-system)
 25. [NGB Registration & Verification](#25-ngb-registration--verification)
-26. [PR Breakdown Strategy](#26-pr-breakdown-strategy)
+- [**Phase 4 Overview**](#phase-4-overview)
+26. [Game Management & Scheduling](#26-game-management--scheduling)
+27. [Player Claim & Autonomy Flow](#27-player-claim--autonomy-flow)
+28. [Communications & Messaging](#28-communications--messaging)
+- [**Phase 5 Overview**](#phase-5-overview)
+29. [Marketplace](#29-marketplace)
+30. [Mobile App](#30-mobile-app)
+31. [Advanced Compliance](#31-advanced-compliance)
+32. [PR Breakdown Strategy](#32-pr-breakdown-strategy)
 
 ---
 
@@ -3631,7 +3639,719 @@ WHERE usa_hockey_id IS NOT NULL AND deleted_at IS NULL;
 
 ---
 
-## 26. PR Breakdown Strategy
+## Phase 4 Overview
+
+Phase 4 builds the **engagement and operational management layers** — transforming Zice from a registration/payment platform into a full day-to-day sports management tool. Coaches and admins manage schedules and communicate with families; players gain autonomy over their own accounts.
+
+### Phase Summary (Updated)
+
+| Phase | Focus | Key Deliverable | Sections |
+|---|---|---|---|
+| **Phase 1** | Data Foundation | Multi-tenant schema, RLS, core API, auth | §4–§7 |
+| **Phase 1.5** | Authentication | Supabase Auth, signup/login, onboarding | §5 |
+| **Phase 2** | Market Entry | Roster Auditor (client-side CSV tool) | §6 |
+| **Phase 2.5** | Admin Tooling | Admin dashboard, CRUD, soft deletes, audit log, blog | §16–§21 |
+| **Phase 3** | Revenue & Operations | Payments, platform admin, notifications, NGB compliance | §22–§25 |
+| **Phase 4** | Engagement & Management | Game scheduling, player autonomy, team messaging | §26–§28 |
+| **Phase 5** | Scale & Expansion | Marketplace, mobile app, advanced compliance | §29–§31 |
+
+### Phase 4 Sub-Phases
+
+#### Phase 4A: Game Management & Scheduling (§26)
+> **Goal:** Give coaches and admins full control over game/practice schedules, and give families a unified calendar view.
+
+- Full CRUD for games, practices, and events (extends existing `games` table from dev seeder)
+- Recurring event support (e.g., "Practice every Tuesday 6-7pm")
+- Location/venue management with address, rink/field number, map link
+- Score entry, game results, and season standings
+- Schedule change notifications (integrates with Phase 3C notification system)
+- iCal/Google Calendar export per team or per family
+- Conflict detection (double-booked players across teams/orgs)
+- Unified family calendar aggregation (§3.6 design, now implemented)
+- **PRs:** C29–C32, F20–F22
+- **Dependency:** Phase 3C (schedule change notifications)
+
+#### Phase 4B: Player Claim & Autonomy Flow (§27)
+> **Goal:** Enable players to claim their accounts and gradually gain autonomy as they age.
+
+- Player self-claim flow: signup → search by name+DOB → claim guardianship (extends §16.5)
+- Admin approval workflow for player claims
+- Age 13+ account linking: admin/parent creates auth account, links `player_user_id`
+- Age 18+ autonomy transition: player becomes primary account holder, `legal_signer` auto-revokes for guardians
+- Player profile management (own schedule, own NGB registrations, own messages)
+- Guardian connection management (adult players control their own guardian links)
+- **PRs:** C33–C34, F23–F24
+- **Dependency:** None — can start in parallel with 4A
+
+#### Phase 4C: Communications & Messaging (§28)
+> **Goal:** Enable real-time conversational messaging between coaches, parents, and players within org context.
+
+- Threaded team messaging (distinct from blog posts and notifications)
+- Direct messages (coach ↔ parent, coach ↔ player 13+)
+- Team channels (per-team group conversations)
+- Org-wide announcements with read receipts
+- Message attachments (images, PDFs, links)
+- Real-time delivery via Supabase Realtime (WebSocket)
+- Unread counts and message search
+- Moderation tools for admins (flag, delete, mute users)
+- **PRs:** C35–C37, F25–F26
+- **Dependency:** Phase 4B (player accounts needed for player messaging)
+
+### Phase 4 Recommended Build Order
+
+```mermaid
+gantt
+    title Phase 4 Implementation Timeline
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %d
+
+    section 4A: Game Management
+    C29 Games schema + venues + recurring :a1, 2026-08-01, 5d
+    C30 Schedule API + conflict detection  :a2, after a1, 5d
+    C31 Score entry + standings engine      :a3, after a2, 5d
+    C32 Calendar export (iCal/Google)       :a4, after a3, 3d
+    F20 Schedule views + family calendar    :a5, after a2, 7d
+    F21 Score entry + standings UI          :a6, after a3, 5d
+    F22 Admin schedule management           :a7, after a2, 5d
+
+    section 4B: Player Claim
+    C33 Player claim + approval workflow   :b1, 2026-08-01, 5d
+    C34 Age transition + autonomy API      :b2, after b1, 5d
+    F23 Player claim UI + search           :b3, after b1, 5d
+    F24 Player profile + guardian mgmt     :b4, after b2, 5d
+
+    section 4C: Communications
+    C35 Messaging schema + channels        :c1, after b2, 5d
+    C36 Real-time messaging API            :c2, after c1, 5d
+    C37 Moderation + search                :c3, after c2, 3d
+    F25 Chat UI + threads                  :c4, after c2, 7d
+    F26 Admin moderation tools             :c5, after c3, 5d
+```
+
+### Phase 4 PR Summary
+
+| Sub-Phase | Backend PRs | Frontend PRs | Total PRs | Est. LOC |
+|---|---|---|---|---|
+| 4A: Game Management | C29–C32 (4) | F20–F22 (3) | 7 | ~3,500 |
+| 4B: Player Claim | C33–C34 (2) | F23–F24 (2) | 4 | ~2,000 |
+| 4C: Communications | C35–C37 (3) | F25–F26 (2) | 5 | ~3,000 |
+| **Total Phase 4** | **9** | **7** | **16** | **~8,500** |
+
+### Phase 4 Exit Criteria
+
+Phase 4 is complete when:
+1. A coach can create/edit game and practice schedules with recurring events
+2. A guardian sees all their children's events across multiple orgs in a unified calendar
+3. Scores can be entered and season standings auto-calculate
+4. A parent can export their family calendar to Google Calendar / iCal
+5. A player (13+) can claim their account by matching name+DOB, with admin approval
+6. An adult player (18+) can manage their own guardian connections and profile
+7. Coaches can send messages to the team, individual parents, or individual players (13+)
+8. Parents and coaches can have threaded conversations within org context
+9. Admins can moderate messages (flag, delete, mute)
+
+---
+
+## 26. Game Management & Scheduling
+
+### 26.1 Overview
+
+Game management extends the existing `games` table (created in the dev seeder, C7) into a full scheduling system. It covers games, practices, team events, venue management, recurring schedules, score entry, standings, and calendar export.
+
+### 26.2 Database Schema
+
+#### `public.venues`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `org_id` | `uuid` | FK → `organizations(id)`, NOT NULL | Tenant scoping |
+| `name` | `text` | NOT NULL | e.g., "Joliet Arena — Rink A" |
+| `address_line1` | `text` | NULLABLE | Street address |
+| `address_line2` | `text` | NULLABLE | Suite/unit |
+| `city` | `text` | NULLABLE | |
+| `state` | `text` | NULLABLE | |
+| `zip` | `text` | NULLABLE | |
+| `map_url` | `text` | NULLABLE | Google Maps / Apple Maps link |
+| `notes` | `text` | NULLABLE | Parking instructions, entrance info, etc. |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+| `updated_at` | `timestamptz` | DEFAULT `now()` | |
+| `deleted_at` | `timestamptz` | NULLABLE | Soft-delete |
+
+#### `public.games` (extended)
+
+Extends the existing `games` table with additional fields:
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `org_id` | `uuid` | FK → `organizations(id)`, NOT NULL | Tenant scoping |
+| `team_designation` | `text` | NOT NULL | e.g., "14U Gold" |
+| `season` | `text` | NOT NULL | e.g., "2025-26" |
+| `event_type` | `text` | NOT NULL, CHECK in (`game`, `practice`, `scrimmage`, `tournament`, `team_event`, `meeting`) | Type of scheduled event |
+| `title` | `text` | NULLABLE | Optional custom title (e.g., "Championship Game") |
+| `opponent` | `text` | NULLABLE | For games only |
+| `venue_id` | `uuid` | FK → `venues(id)`, NULLABLE | Linked venue |
+| `location` | `text` | NULLABLE | Free-text fallback if no venue record |
+| `start_time` | `timestamptz` | NOT NULL | Event start |
+| `end_time` | `timestamptz` | NULLABLE | Event end |
+| `home_away` | `text` | NULLABLE, CHECK in (`home`, `away`, `neutral`) | |
+| `home_score` | `integer` | NULLABLE | Score — filled post-game |
+| `away_score` | `integer` | NULLABLE | |
+| `result` | `text` | NULLABLE, CHECK in (`win`, `loss`, `tie`, `otw`, `otl`, `sow`, `sol`) | Computed or entered |
+| `status` | `text` | NOT NULL, DEFAULT `'scheduled'`, CHECK in (`scheduled`, `in_progress`, `completed`, `cancelled`, `postponed`) | |
+| `recurrence_rule` | `text` | NULLABLE | iCal RRULE string (e.g., `FREQ=WEEKLY;BYDAY=TU;UNTIL=20260301`) |
+| `recurrence_parent_id` | `uuid` | FK → `games(id)`, NULLABLE | Parent event for recurring series |
+| `notes` | `text` | NULLABLE | Coach notes, pre-game instructions |
+| `notify_on_change` | `boolean` | NOT NULL, DEFAULT `true` | Auto-send notification on time/location change |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+| `updated_at` | `timestamptz` | DEFAULT `now()` | |
+| `deleted_at` | `timestamptz` | NULLABLE | Soft-delete |
+
+> **RLS:** Same as existing — org members can SELECT, coaches + admins can INSERT/UPDATE/DELETE.
+
+#### `public.game_attendance`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `game_id` | `uuid` | FK → `games(id)`, NOT NULL | |
+| `player_id` | `uuid` | FK → `players(id)`, NOT NULL | |
+| `status` | `text` | NOT NULL, DEFAULT `'pending'`, CHECK in (`pending`, `confirmed`, `declined`, `late`, `no_show`) | RSVP / attendance status |
+| `responded_by` | `uuid` | FK → `auth.users(id)`, NULLABLE | Guardian or player who responded |
+| `responded_at` | `timestamptz` | NULLABLE | |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **Unique constraint:** `(game_id, player_id)`. **RLS:** Guardians/players can update their own attendance. Coaches/admins can view all and update any.
+
+#### `public.standings_cache`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `org_id` | `uuid` | FK → `organizations(id)`, NOT NULL | |
+| `team_designation` | `text` | NOT NULL | |
+| `season` | `text` | NOT NULL | |
+| `wins` | `integer` | NOT NULL, DEFAULT 0 | |
+| `losses` | `integer` | NOT NULL, DEFAULT 0 | |
+| `ties` | `integer` | NOT NULL, DEFAULT 0 | |
+| `ot_wins` | `integer` | NOT NULL, DEFAULT 0 | |
+| `ot_losses` | `integer` | NOT NULL, DEFAULT 0 | |
+| `so_wins` | `integer` | NOT NULL, DEFAULT 0 | |
+| `so_losses` | `integer` | NOT NULL, DEFAULT 0 | |
+| `points` | `integer` | NOT NULL, DEFAULT 0 | Computed: W×2 + T×1 + OTW×2 + OTL×1 + SOW×2 + SOL×1 |
+| `goals_for` | `integer` | NOT NULL, DEFAULT 0 | |
+| `goals_against` | `integer` | NOT NULL, DEFAULT 0 | |
+| `updated_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **Unique constraint:** `(org_id, team_designation, season)`. Recomputed on score entry via trigger or API call.
+
+### 26.3 Recurring Events
+
+Recurring events use iCal `RRULE` syntax stored in `recurrence_rule`:
+
+```
+FREQ=WEEKLY;BYDAY=TU;UNTIL=20260301T000000Z    → Every Tuesday until March 1
+FREQ=WEEKLY;BYDAY=TU,TH;COUNT=20               → Tuesdays and Thursdays, 20 occurrences
+FREQ=DAILY;INTERVAL=1;COUNT=5                   → 5 consecutive days (camp)
+```
+
+**Expansion strategy:** Individual event rows are materialized (not computed on-the-fly). When a recurring event is created, the API expands the RRULE into individual `games` rows, each with `recurrence_parent_id` pointing back to the parent. Editing the parent updates all future instances; editing a single instance detaches it from the series.
+
+### 26.4 Conflict Detection
+
+```mermaid
+flowchart TD
+    A[New game/practice created] --> B{Any player on roster<br/>already has event at<br/>same time?}
+    B -->|No| C[Save event]
+    B -->|Yes| D[Return conflict warnings]
+    D --> E{Admin/coach proceeds?}
+    E -->|Yes| C
+    E -->|No| F[Adjust time/date]
+```
+
+Conflict detection checks across ALL orgs a player belongs to (via `rosters` → `games`). This is a warning, not a blocker — the coach can still save the event.
+
+### 26.5 Calendar Export
+
+Two export formats:
+- **iCal (.ics)**: Standard iCalendar file. One endpoint per team, one per family (all children's events).
+- **Google Calendar subscription URL**: Long-lived URL that Google Calendar polls for updates.
+
+```
+GET /api/v1/orgs/:org_id/teams/:team/calendar.ics        → Team calendar
+GET /api/v1/calendar/family.ics?token=:calendar_token     → Family calendar (all orgs)
+```
+
+The `calendar_token` is a long-lived, per-user opaque token (stored in `auth.users.raw_user_meta_data`) that doesn't require session auth — Google Calendar needs to fetch it anonymously.
+
+### 26.6 Schedule Change Notifications
+
+When a game/practice is updated (time, location, or cancelled), the system automatically dispatches notifications via the Phase 3C notification system:
+
+| Change | Event Type | Default Channels |
+|---|---|---|
+| Time changed | `schedule.game_changed` | Email, SMS, Push, In-App |
+| Location changed | `schedule.game_changed` | Email, SMS, Push, In-App |
+| Cancelled | `schedule.game_cancelled` | Email, SMS, Push, In-App |
+| New event added | `schedule.game_created` | Email, Push, In-App |
+| Score posted | `schedule.game_result` | Push, In-App |
+
+### 26.7 API Endpoints
+
+| Method | Endpoint | Description | Auth |
+|---|---|---|---|
+| `GET` | `/api/v1/orgs/:org_id/games` | List games (filterable by team, season, date range, type) | Member |
+| `POST` | `/api/v1/orgs/:org_id/games` | Create game/practice (supports recurring) | Coach/Admin |
+| `GET` | `/api/v1/orgs/:org_id/games/:id` | Get game details | Member |
+| `PUT` | `/api/v1/orgs/:org_id/games/:id` | Update game (triggers notifications if `notify_on_change`) | Coach/Admin |
+| `DELETE` | `/api/v1/orgs/:org_id/games/:id` | Soft-delete game | Coach/Admin |
+| `PUT` | `/api/v1/orgs/:org_id/games/:id/score` | Enter/update score + result | Coach/Admin |
+| `GET` | `/api/v1/orgs/:org_id/standings` | Get standings for team/season | Member |
+| `GET` | `/api/v1/orgs/:org_id/games/:id/attendance` | Get attendance for a game | Coach/Admin |
+| `PUT` | `/api/v1/orgs/:org_id/games/:id/attendance` | RSVP / update attendance status | Guardian/Player |
+| `GET` | `/api/v1/orgs/:org_id/venues` | List venues | Member |
+| `POST` | `/api/v1/orgs/:org_id/venues` | Create venue | Admin |
+| `PUT` | `/api/v1/orgs/:org_id/venues/:id` | Update venue | Admin |
+| `GET` | `/api/v1/orgs/:org_id/teams/:team/calendar.ics` | Team iCal export | Public (token) |
+| `GET` | `/api/v1/calendar/family.ics` | Family calendar export | Public (token) |
+| `GET` | `/api/v1/calendar/family` | Family calendar JSON (all children, all orgs) | Auth |
+
+### 26.8 Frontend Pages
+
+| Route | Component | Description |
+|---|---|---|
+| `/schedule` | `ScheduleView` | Calendar view (month/week/day) with team filter. Color-coded by event type |
+| `/schedule/:id` | `GameDetail` | Game detail page — time, location, opponent, score, attendance list, map link |
+| `/calendar` | `FamilyCalendar` | Unified family calendar showing all children's events across all orgs |
+| `/admin/schedule` | `AdminScheduleManager` | CRUD for games/practices, recurring event editor, conflict warnings |
+| `/admin/schedule/:id/score` | `ScoreEntry` | Score entry form with result auto-calculation |
+| `/admin/venues` | `VenueManager` | Venue CRUD with address/map management |
+| `/standings` | `StandingsTable` | Season standings with W-L-T-OTW-OTL-SOW-SOL-PTS-GF-GA columns |
+
+### 26.9 PR Breakdown (Game Management)
+
+| PR # | Title | Repo | Est. Size | Description |
+|---|---|---|---|---|
+| C29 | Games schema — venues, extended games, attendance, standings | zice-core | Medium | Tables, RLS policies, triggers for standings recomputation |
+| C30 | Schedule API + conflict detection + recurring events | zice-core | Medium | CRUD endpoints, RRULE expansion, cross-org conflict detection |
+| C31 | Score entry + standings engine | zice-core | Medium | Score entry endpoint, standings recompute trigger, season stats |
+| C32 | Calendar export — iCal + Google Calendar subscription | zice-core | Small | `.ics` generation, calendar token management, public endpoints |
+| F20 | Schedule views + family calendar | zice-frontend | Medium | Calendar UI (month/week/day), family calendar, game detail page |
+| F21 | Score entry + standings UI | zice-frontend | Medium | Score entry form, standings table, result badges |
+| F22 | Admin schedule management + venue CRUD | zice-frontend | Medium | Schedule CRUD, recurring event editor, venue management |
+
+---
+
+## 27. Player Claim & Autonomy Flow
+
+### 27.1 Overview
+
+When admins bulk-import players (via C9), those players exist without guardian links or auth accounts. The Player Claim flow enables parents to discover and claim guardianship of their children. The Autonomy flow handles the age-based transitions defined in §3.4 — granting players increasing control as they age.
+
+### 27.2 Player Claim Flow
+
+```mermaid
+sequenceDiagram
+    participant Parent
+    participant FE as Frontend
+    participant API as Go API
+    participant DB as Supabase
+    participant Admin
+    participant Notify as Notification System
+
+    Parent->>FE: "Find my child" on dashboard
+    FE->>API: POST /api/v1/players/search {first_name, last_name, dob}
+    API->>DB: Query players WHERE name+dob match AND no guardian link
+    DB-->>API: Matching player(s)
+    API-->>FE: List of potential matches (redacted — first name + last initial + age only)
+
+    Parent->>FE: Select correct player
+    FE->>API: POST /api/v1/players/:id/claim {relationship: "parent"}
+    API->>DB: Create player_claim_requests record (status: pending)
+    API->>Notify: Notify org admins: "Parent claims guardianship of Player"
+    Notify->>Admin: Email + In-App notification
+
+    Admin->>FE: Review claim in admin dashboard
+    Admin->>API: PUT /api/v1/admin/claims/:id/approve
+    API->>DB: Create player_guardians link
+    API->>Notify: Notify parent: "Claim approved"
+    Notify->>Parent: Email + In-App notification
+
+    Note over Parent,DB: Parent now has full guardian access to player
+```
+
+### 27.3 Database Schema
+
+#### `public.player_claim_requests`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `player_id` | `uuid` | FK → `players(id)`, NOT NULL | Player being claimed |
+| `user_id` | `uuid` | FK → `auth.users(id)`, NOT NULL | User making the claim |
+| `org_id` | `uuid` | FK → `organizations(id)`, NOT NULL | Org context |
+| `relationship` | `text` | NOT NULL, CHECK in (`parent`, `step_parent`, `legal_guardian`, `grandparent`, `caregiver`) | Claimed relationship |
+| `status` | `text` | NOT NULL, DEFAULT `'pending'`, CHECK in (`pending`, `approved`, `rejected`, `cancelled`) | |
+| `reviewed_by` | `uuid` | FK → `auth.users(id)`, NULLABLE | Admin who reviewed |
+| `reviewed_at` | `timestamptz` | NULLABLE | |
+| `rejection_reason` | `text` | NULLABLE | If rejected, why |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **Unique constraint:** `(player_id, user_id)` WHERE `status = 'pending'` — prevent duplicate pending claims.
+
+### 27.4 Age-Based Autonomy Transitions
+
+The age-tier system (§3.4) is computed, not stored. The following table summarizes what changes at each transition and how the system handles it:
+
+| Transition | Trigger | System Action | User Action Required |
+|---|---|---|---|
+| **→ Teen (13)** | `get_player_age_tier(dob) = 'teen'` | RLS policies allow player to SELECT own data | Admin/parent creates auth account for player, links `player_user_id` |
+| **→ Adult (18)** | `get_player_age_tier(dob) = 'adult'` | RLS policies grant player `legal_signer`-equivalent access; guardian `legal_signer` auto-revokes in policy evaluation | Player can now manage own guardian connections |
+
+#### Account Linking API
+
+```
+POST /api/v1/players/:id/link-account
+{
+  "email": "liam@example.com",       // Player's own email
+  "send_invite": true                // Send welcome email with setup link
+}
+```
+
+- **Who can call:** Admin or guardian with `legal_signer` permission
+- **What it does:** Creates a Supabase auth account for the player, sets `players.player_user_id`, sends welcome email
+- **Guards:** Player must be age 13+ (`get_player_age_tier(dob) IN ('teen', 'adult')`)
+
+#### Adult Autonomy Endpoints
+
+```
+GET    /api/v1/me/guardians                    # Player views their guardian connections
+PUT    /api/v1/me/guardians/:id                # Player updates guardian permissions
+DELETE /api/v1/me/guardians/:id                # Player removes a guardian connection
+POST   /api/v1/me/guardians                    # Player adds a new guardian (e.g., spouse as co-guardian for their own child)
+```
+
+- **Who can call:** Only the player themselves (`player_user_id = auth.uid()`)
+- **Guard:** `get_player_age_tier(dob) = 'adult'`
+
+### 27.5 Player Search Privacy
+
+Player search for claims is intentionally privacy-preserving:
+- Search requires **exact match** on first name + last name + date of birth (all three required)
+- Results show **redacted info only**: first name, last initial, age, org name — no DOB, no address, no contact info
+- No wildcard or fuzzy search allowed for claim purposes (prevents data harvesting)
+- Rate-limited: max 10 searches per user per hour
+
+### 27.6 API Endpoints
+
+| Method | Endpoint | Description | Auth |
+|---|---|---|---|
+| `POST` | `/api/v1/players/search` | Search for unclaimed players (exact name+DOB match) | Auth |
+| `POST` | `/api/v1/players/:id/claim` | Submit guardianship claim | Auth |
+| `GET` | `/api/v1/admin/claims` | List pending claims for org | Admin |
+| `PUT` | `/api/v1/admin/claims/:id/approve` | Approve a claim | Admin |
+| `PUT` | `/api/v1/admin/claims/:id/reject` | Reject a claim (with reason) | Admin |
+| `POST` | `/api/v1/players/:id/link-account` | Create auth account for player 13+ | Admin/Guardian |
+| `GET` | `/api/v1/me/guardians` | Player views own guardian connections | Player (adult) |
+| `PUT` | `/api/v1/me/guardians/:id` | Player updates guardian permissions | Player (adult) |
+| `DELETE` | `/api/v1/me/guardians/:id` | Player removes guardian connection | Player (adult) |
+| `GET` | `/api/v1/me/profile` | Player views own profile | Player (teen/adult) |
+| `PUT` | `/api/v1/me/profile` | Player updates own profile | Player (adult) |
+
+### 27.7 Frontend Pages
+
+| Route | Component | Description |
+|---|---|---|
+| `/claim` | `PlayerClaimWizard` | Step-by-step: enter name+DOB → select match → submit claim → pending confirmation |
+| `/admin/claims` | `AdminClaimQueue` | Pending claims list with player info, claimant info, approve/reject buttons |
+| `/me` | `PlayerProfile` | Player's own profile — schedule, NGB registrations, guardian connections |
+| `/me/guardians` | `GuardianManager` | Adult player's guardian connection management — edit permissions, remove connections |
+
+### 27.8 PR Breakdown (Player Claim)
+
+| PR # | Title | Repo | Est. Size | Description |
+|---|---|---|---|---|
+| C33 | Player claim — search, claim requests, approval workflow | zice-core | Medium | `player_claim_requests` table, search endpoint, claim CRUD, admin approval |
+| C34 | Age transition — account linking, autonomy endpoints | zice-core | Medium | `link-account` endpoint, `/me/*` player self-management endpoints, age guards |
+| F23 | Player claim UI — search wizard + pending state | zice-frontend | Medium | `PlayerClaimWizard`, admin `ClaimQueue`, claim status indicators |
+| F24 | Player profile + adult guardian management | zice-frontend | Medium | `PlayerProfile`, `GuardianManager`, age-aware UI (teen vs adult capabilities) |
+
+---
+
+## 28. Communications & Messaging
+
+### 28.1 Overview
+
+Communications provides **conversational messaging** within org context — distinct from the blog (one-to-many publishing, §21) and notifications (system-generated alerts, §24). This is real-time, threaded messaging between coaches, parents, and players (13+).
+
+### 28.2 Channel Types
+
+| Channel Type | Description | Participants | Example |
+|---|---|---|---|
+| **Team** | Group conversation for an entire team | All members of a team (coaches, guardians, players 13+) | "14U Gold" team chat |
+| **Direct** | 1:1 private conversation | Two users | Coach ↔ Parent |
+| **Announcement** | One-way broadcast (only coaches/admins can post, members can react) | Coaches/admins → all members | "Reminder: bring black jerseys tomorrow" |
+| **Custom Group** | Admin-created subgroup | Selected members | "Carpoolers for Saturday games" |
+
+### 28.3 Database Schema
+
+#### `public.message_channels`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `org_id` | `uuid` | FK → `organizations(id)`, NOT NULL | Tenant scoping |
+| `channel_type` | `text` | NOT NULL, CHECK in (`team`, `direct`, `announcement`, `custom_group`) | |
+| `name` | `text` | NULLABLE | Display name (auto-generated for team channels, custom for groups) |
+| `team_designation` | `text` | NULLABLE | For `team` channels — links to team |
+| `season` | `text` | NULLABLE | For `team` channels — season scope |
+| `created_by` | `uuid` | FK → `auth.users(id)`, NOT NULL | |
+| `is_archived` | `boolean` | NOT NULL, DEFAULT `false` | |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+| `updated_at` | `timestamptz` | DEFAULT `now()` | |
+| `deleted_at` | `timestamptz` | NULLABLE | Soft-delete |
+
+#### `public.channel_members`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `channel_id` | `uuid` | FK → `message_channels(id)`, NOT NULL | |
+| `user_id` | `uuid` | FK → `auth.users(id)`, NOT NULL | |
+| `role` | `text` | NOT NULL, DEFAULT `'member'`, CHECK in (`member`, `admin`, `muted`) | |
+| `last_read_at` | `timestamptz` | NULLABLE | For unread count computation |
+| `joined_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **Unique constraint:** `(channel_id, user_id)`
+
+#### `public.messages`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `channel_id` | `uuid` | FK → `message_channels(id)`, NOT NULL | |
+| `sender_id` | `uuid` | FK → `auth.users(id)`, NOT NULL | |
+| `parent_message_id` | `uuid` | FK → `messages(id)`, NULLABLE | For threaded replies |
+| `body` | `text` | NOT NULL | Message text (markdown supported) |
+| `attachments` | `jsonb` | DEFAULT `'[]'` | Array of `{url, filename, content_type, size}` |
+| `is_edited` | `boolean` | NOT NULL, DEFAULT `false` | |
+| `edited_at` | `timestamptz` | NULLABLE | |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+| `deleted_at` | `timestamptz` | NULLABLE | Soft-delete (moderation) |
+
+> **RLS:** Channel members can SELECT messages in their channels. Members can INSERT into non-announcement channels. For announcement channels, only coach/admin members can INSERT. Sender can UPDATE own messages. Admins can soft-delete any message (moderation).
+
+#### `public.message_reactions`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `message_id` | `uuid` | FK → `messages(id)`, NOT NULL | |
+| `user_id` | `uuid` | FK → `auth.users(id)`, NOT NULL | |
+| `emoji` | `text` | NOT NULL | e.g., `👍`, `❤️`, `✅` |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **Unique constraint:** `(message_id, user_id, emoji)` — one reaction per emoji per user per message.
+
+### 28.4 Real-Time Delivery
+
+Messages are delivered in real-time via **Supabase Realtime** (same infrastructure as Phase 3C in-app notifications):
+
+```mermaid
+sequenceDiagram
+    participant Sender
+    participant API as Go API
+    participant DB as Supabase
+    participant RT as Supabase Realtime
+    participant Recipients
+
+    Sender->>API: POST /api/v1/channels/:id/messages
+    API->>DB: INSERT INTO messages
+    DB->>RT: Realtime broadcast on channel
+    RT->>Recipients: WebSocket push to all connected members
+    Note over Recipients: UI updates instantly — no polling
+```
+
+**Offline handling:** Messages are persisted in the database. When a user comes online, they fetch messages since `last_read_at`. Unread counts are computed client-side from `last_read_at` vs. most recent message timestamp.
+
+### 28.5 Auto-Created Channels
+
+Team channels are auto-created when a team roster exists:
+- One `team` channel per `(org_id, team_designation, season)` combination
+- Members auto-synced: all coaches + all guardians of rostered players + rostered players age 13+
+- When a player is added/removed from roster, their guardians are added/removed from the channel
+
+Direct message channels are created on-demand when a user initiates a DM.
+
+### 28.6 Moderation
+
+| Action | Who Can Do It | Effect |
+|---|---|---|
+| Delete message | Admin, Coach (own channel) | Soft-delete — replaced with "[Message removed by moderator]" |
+| Mute user | Admin | User's `channel_members.role` set to `muted` — can read but not send |
+| Unmute user | Admin | Restore to `member` role |
+| Archive channel | Admin | Channel hidden from sidebar, read-only |
+| Flag message | Any member | Creates moderation record for admin review |
+
+### 28.7 API Endpoints
+
+| Method | Endpoint | Description | Auth |
+|---|---|---|---|
+| `GET` | `/api/v1/channels` | List user's channels with unread counts | Auth |
+| `POST` | `/api/v1/channels` | Create custom group or DM | Auth |
+| `GET` | `/api/v1/channels/:id` | Get channel details + members | Channel Member |
+| `GET` | `/api/v1/channels/:id/messages` | List messages (paginated, since timestamp) | Channel Member |
+| `POST` | `/api/v1/channels/:id/messages` | Send message | Channel Member (not muted) |
+| `PUT` | `/api/v1/channels/:id/messages/:mid` | Edit own message | Message Sender |
+| `DELETE` | `/api/v1/channels/:id/messages/:mid` | Soft-delete message (moderation) | Admin/Coach |
+| `POST` | `/api/v1/channels/:id/messages/:mid/reactions` | Add reaction | Channel Member |
+| `DELETE` | `/api/v1/channels/:id/messages/:mid/reactions/:emoji` | Remove reaction | Reaction Owner |
+| `PUT` | `/api/v1/channels/:id/read` | Mark channel as read (update `last_read_at`) | Channel Member |
+| `PUT` | `/api/v1/channels/:id/members/:uid/mute` | Mute a user | Admin |
+| `PUT` | `/api/v1/channels/:id/members/:uid/unmute` | Unmute a user | Admin |
+| `POST` | `/api/v1/channels/:id/messages/:mid/flag` | Flag message for review | Channel Member |
+| `GET` | `/api/v1/admin/flagged-messages` | List flagged messages for org | Admin |
+| `GET` | `/api/v1/messages/search` | Search messages across user's channels | Auth |
+
+### 28.8 Frontend Pages
+
+| Route | Component | Description |
+|---|---|---|
+| `/messages` | `MessageCenter` | Channel list sidebar + message pane. Real-time updates via Supabase Realtime |
+| `/messages/:channel_id` | `ChatView` | Threaded message view with reply, edit, react, attach |
+| `/messages/new` | `NewConversation` | Start a DM or create a custom group |
+| `/admin/messages/flagged` | `FlaggedMessages` | Admin view of flagged messages with moderate/dismiss actions |
+
+### 28.9 Player Messaging Rules
+
+Players who have accounts (age 13+) can participate in messaging with restrictions:
+
+| Capability | Teen (13-17) | Adult (18+) |
+|---|---|---|
+| Read team channel | ✓ | ✓ |
+| Send in team channel | ✓ | ✓ |
+| Receive DM from coach | ✓ | ✓ |
+| Initiate DM to coach | ✓ | ✓ |
+| DM other parents | ✗ | ✓ |
+| DM other players | ✗ | ✓ |
+| Create custom groups | ✗ | ✓ |
+
+> **Safety:** Coach ↔ teen player DMs are logged and visible to the player's guardians in the audit log. Guardians with `messaging` permission can view all messages sent to/from their minor child.
+
+### 28.10 PR Breakdown (Communications)
+
+| PR # | Title | Repo | Est. Size | Description |
+|---|---|---|---|---|
+| C35 | Messaging schema — channels, members, messages, reactions | zice-core | Medium | Tables, RLS policies, auto-channel creation triggers, moderation |
+| C36 | Real-time messaging API + Supabase Realtime integration | zice-core | Medium | Message CRUD, Realtime broadcast, unread counts, DM creation |
+| C37 | Message search + moderation + flagging | zice-core | Medium | Full-text search, flag workflow, mute/unmute, admin moderation endpoints |
+| F25 | Chat UI — message center, threads, reactions, attachments | zice-frontend | Medium | `MessageCenter`, `ChatView`, `NewConversation`, Realtime subscription |
+| F26 | Admin moderation — flagged messages, mute controls | zice-frontend | Medium | `FlaggedMessages`, mute/unmute UI, message deletion confirmation |
+
+---
+
+## Phase 5 Overview
+
+Phase 5 represents the **scale and expansion** layer — extending Zice into new platforms (mobile), new markets (marketplace), and deeper compliance automation. These features are designed for post-launch growth and can be developed independently.
+
+### Phase 5 Sub-Phases
+
+#### Phase 5A: Marketplace (§29)
+> **Goal:** Enable hyper-local gear exchange and equipment management within and across organizations.
+
+- Gear listing with photos, condition, price (or free)
+- Category taxonomy (skates, sticks, pads, helmets, jerseys, bags, etc.)
+- On-rink/on-field handoff coordination with scheduling
+- Buyer/seller messaging (extends Phase 4C messaging)
+- Org-scoped listings (default) with opt-in cross-org visibility
+- Safety: no direct payment through platform (cash/Venmo at handoff) — or optional Stripe integration
+- **PRs:** C38–C40, F27–F28
+- **Dependency:** Phase 4C (messaging for buyer/seller communication)
+
+#### Phase 5B: Mobile App (§30)
+> **Goal:** Native mobile experience for on-the-go access to schedules, messages, and notifications.
+
+- React Native / Expo (code sharing with Next.js where possible)
+- Consumes existing REST API — no backend changes needed
+- Push notifications via FCM/APNs (Phase 3C infrastructure)
+- Offline-first schedule caching (SQLite/MMKV on device)
+- Camera integration for profile photos, gear listing photos, document upload (NGB verification)
+- Biometric auth (Face ID / fingerprint) via passkey support
+- **PRs:** M1–M5 (new `zice-mobile` repo)
+- **Dependency:** Phase 3C (push notifications), Phase 4A (schedule), Phase 4C (messaging)
+
+#### Phase 5C: Advanced Compliance (§31)
+> **Goal:** Automate compliance tracking, document collection, and expiration chasing.
+
+- Automated compliance chasing: email/SMS reminders for expiring NGB registrations, SafeSport certifications, waivers
+- Document upload and storage (birth certificates, medical forms, waivers)
+- Compliance status dashboard per team (percentage complete, who's missing what)
+- Background job queue (async processing for batch checks, reminders)
+- Waiver template builder (admins create custom waivers, guardians e-sign)
+- SafeSport certification tracking for coaches
+- **PRs:** C41–C43, F29–F30
+- **Dependency:** Phase 3D (NGB registration data), Phase 3C (notification dispatch)
+
+### Phase 5 PR Summary
+
+| Sub-Phase | Backend PRs | Frontend PRs | Mobile PRs | Total PRs | Est. LOC |
+|---|---|---|---|---|---|
+| 5A: Marketplace | C38–C40 (3) | F27–F28 (2) | — | 5 | ~2,500 |
+| 5B: Mobile App | — | — | M1–M5 (5) | 5 | ~5,000 |
+| 5C: Advanced Compliance | C41–C43 (3) | F29–F30 (2) | — | 5 | ~2,500 |
+| **Total Phase 5** | **6** | **4** | **5** | **15** | **~10,000** |
+
+### Phase 5 Exit Criteria
+
+Phase 5 is complete when:
+1. Users can list, browse, and coordinate handoff of sports gear within their org
+2. A native mobile app provides schedule, messaging, and notification access
+3. Push notifications work end-to-end on iOS and Android
+4. Admins can see team-level compliance status and chase missing documents automatically
+5. Guardians can upload documents and e-sign waivers from mobile or web
+6. Coaches' SafeSport certification status is tracked and expiration alerts are sent
+
+---
+
+## 29. Marketplace
+
+> **Phase 5A** — Detailed design to be completed when Phase 4 is nearing completion. High-level scope defined in Phase 5 Overview above.
+
+Key design decisions to resolve before implementation:
+1. **Payment model:** Cash-at-handoff only, or integrate Stripe for in-app payments?
+2. **Cross-org visibility:** Default org-scoped only, or allow cross-org browsing within a geographic radius?
+3. **Shipping:** Local handoff only, or support shipping for wider marketplace?
+4. **Moderation:** Community-reported listings, or admin pre-approval?
+
+---
+
+## 30. Mobile App
+
+> **Phase 5B** — Detailed design to be completed when Phase 4 is nearing completion. High-level scope defined in Phase 5 Overview above.
+
+Key design decisions to resolve before implementation:
+1. **Framework:** React Native + Expo (recommended — code sharing with Next.js, OTA updates) vs Flutter
+2. **New repo:** `goruncoder/zice-mobile` — separate from web frontend
+3. **API compatibility:** All Phase 1–4 REST endpoints consumed as-is — no backend changes
+4. **App store strategy:** iOS + Android simultaneously, or iOS-first?
+5. **Offline strategy:** Which data to cache locally (schedule, roster) vs. always-online (messages, payments)?
+
+---
+
+## 31. Advanced Compliance
+
+> **Phase 5C** — Detailed design to be completed when Phase 4 is nearing completion. High-level scope defined in Phase 5 Overview above.
+
+Key design decisions to resolve before implementation:
+1. **Document storage:** Supabase Storage (recommended) vs S3 vs Cloudflare R2
+2. **E-signature:** Build custom (hash + timestamp + IP) or integrate DocuSign/HelloSign?
+3. **Background jobs:** Go worker with Redis queue, or Supabase Edge Functions for simpler jobs?
+4. **SafeSport integration:** Manual tracking only, or API integration if available?
+
+---
+
+## 32. PR Breakdown Strategy
 
 Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 
@@ -3667,6 +4387,21 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | C26 | Bulk messaging API + notification analytics | M3 | Small | Admin/coach message endpoints, delivery stats, audience resolution |
 | C27 | NGB registration schema — ngb_types, ngb_registrations, migration | M3 | Medium | Tables, RLS, seed NGB types, migrate usa_hockey_id |
 | C28 | NGB verification engine + provider interface | M3 | Medium | `NGBVerificationProvider` interface, format validation, manual verification |
+| C29 | Games schema — venues, extended games, attendance, standings | M4 | Medium | `venues`, extended `games`, `game_attendance`, `standings_cache` tables, RLS policies |
+| C30 | Schedule API + conflict detection + recurring events | M4 | Medium | Schedule CRUD, iCal RRULE parsing, conflict detection, bulk game generation |
+| C31 | Score entry + standings engine | M4 | Medium | Score submission endpoints, standings calculation, tiebreaker rules |
+| C32 | Calendar export — iCal + Google Calendar subscription | M4 | Small | `.ics` feed generation, Google Calendar subscription URL, family calendar merge |
+| C33 | Player claim — search, claim requests, approval workflow | M4 | Medium | Player search (exact match), claim request CRUD, admin approval/rejection |
+| C34 | Age transition — account linking, autonomy endpoints | M4 | Medium | Account linking for 13+, adult autonomy for 18+, guardian management |
+| C35 | Messaging schema — channels, members, messages, reactions | M4 | Medium | `message_channels`, `channel_members`, `messages`, `message_reactions` tables, RLS |
+| C36 | Real-time messaging API + Supabase Realtime integration | M4 | Medium | Channel CRUD, send/edit/delete messages, Realtime subscriptions, typing indicators |
+| C37 | Message search + moderation + flagging | M4 | Medium | Full-text search, admin moderation (delete/mute/flag), flagged message queue |
+| C38 | Marketplace schema — listings, orders, payments | M5 | Medium | `marketplace_listings`, `orders`, `order_items` tables, RLS policies |
+| C39 | Marketplace API — listing CRUD, search, purchase flow | M5 | Medium | Listing management, category filters, order processing, seller payouts |
+| C40 | Marketplace payments — escrow, refunds, seller dashboard | M5 | Medium | Escrow hold/release, refund processing, seller earnings reports |
+| C41 | Background check integration — provider abstraction | M5 | Medium | `BackgroundCheckProvider` interface, status tracking, coach/volunteer verification |
+| C42 | SafeSport compliance — training tracking, certificate management | M5 | Medium | Training records, expiration alerts, compliance dashboard data |
+| C43 | Document vault — storage, e-signatures, retention policies | M5 | Medium | Supabase Storage integration, document templates, signature tracking |
 
 ### `zice-frontend` PRs
 
@@ -3691,6 +4426,17 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | F17 | Notification preferences UI + bell/drawer components | M3 | Medium | Preferences grid, NotificationBell, NotificationDrawer, Realtime subscription |
 | F18 | Admin message composer + history UI | M3 | Medium | Compose form with audience picker, sent message log, delivery stats |
 | F19 | NGB compliance dashboard + player registration UI | M3 | Medium | Compliance dashboard, requirement settings, player profile NGB card |
+| F20 | Schedule views + family calendar | M4 | Medium | Team schedule list/calendar, family multi-team calendar, game detail page |
+| F21 | Score entry + standings UI | M4 | Medium | Score entry form (admin/coach), standings table, season statistics |
+| F22 | Admin schedule management + venue CRUD | M4 | Medium | Admin schedule builder, recurring event config, venue management |
+| F23 | Player claim UI — search wizard + pending state | M4 | Medium | Player search form, claim request flow, pending claims list |
+| F24 | Player profile + adult guardian management | M4 | Medium | Player profile page, guardian list management for 18+ users |
+| F25 | Chat UI — message center, threads, reactions, attachments | M4 | Medium | Message center inbox, chat view with threads, emoji reactions, file attachments |
+| F26 | Admin moderation — flagged messages, mute controls | M4 | Medium | Flagged message queue, mute/unmute users, moderation log |
+| F27 | Marketplace browse + listing detail UI | M5 | Medium | Marketplace feed, listing detail, category filters, search |
+| F28 | Seller dashboard + listing management UI | M5 | Medium | Create/edit listings, order management, earnings dashboard |
+| F29 | Compliance dashboard — background checks, SafeSport | M5 | Medium | Coach/volunteer compliance status, training tracking, expiration alerts |
+| F30 | Document vault UI — upload, view, e-sign | M5 | Medium | Document list, upload flow, viewer, e-signature workflow |
 
 ### Cross-Repo PRs
 
@@ -3699,7 +4445,17 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | X1 | CI/CD: PR + deploy Slack notifications | M2 | Small | GitHub Actions workflows for `#dice-platform-prs` and `#dice-platform-deployment` notifications |
 | X2 | Production smoke test scripts | M2 | Small | `scripts/smoke-test.sh` + Makefile `smoke` target for both repos |
 
-> `C1-C28` in **`zice-core`**, `F1-F19` in **`zice-frontend`**, `X1-X2` in **both repos**. PRs can be worked in parallel across repos.
+### `zice-mobile` PRs
+
+| PR # | Title | Milestone | Est. Size | Description |
+|---|---|---|---|---|
+| M1 | Mobile scaffold — Expo + React Native + navigation | M5 | Medium | Expo project setup, React Navigation, shared theme, auth flow |
+| M2 | Mobile auth — login, signup, biometrics | M5 | Medium | Login/signup screens, biometric auth (Face ID/Touch ID), secure token storage |
+| M3 | Mobile schedule — team calendar, game detail, RSVP | M5 | Medium | Schedule list/calendar view, game detail, attendance RSVP |
+| M4 | Mobile messaging — chat, push notifications | M5 | Medium | Chat UI, push notification handling, real-time message delivery |
+| M5 | Mobile profile — player/guardian profiles, settings | M5 | Medium | Profile screens, notification preferences, offline data sync |
+
+> `C1-C43` in **`zice-core`**, `F1-F30` in **`zice-frontend`**, `M1-M5` in **`zice-mobile`**, `X1-X2` in **both repos**. PRs can be worked in parallel across repos.
 
 ---
 
@@ -3734,6 +4490,12 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | 25 | Invoicing | **Auto-generated invoices** — unique invoice numbers per org, itemized line items, PDF download for tax records |
 | 26 | Notifications | **Four-channel notification system** — Email (Resend), SMS (Twilio), Push (FCM), In-App (Supabase Realtime). Granular per-event-type per-channel user preferences. Coach/admin bulk messaging with audience targeting. Rate limiting, deduplication, SMS consent/TCPA compliance. Provider abstraction layer per channel |
 | 27 | NGB registration model | **Multi-sport NGB abstraction** — `ngb_registrations` table replaces `usa_hockey_id`. Supports any sport's governing body (USA Hockey, USA Lacrosse, USA Swimming, US Club Soccer, AAU, etc.). Format-only validation now, API verification when partnerships secured. Org-level NGB requirement config with optional enforcement. Phased: format → manual → API verification |
+| 28 | Game management | **Extended games model** — `venues` table, enhanced `games` with recurring events (iCal RRULE), `game_attendance` for RSVP/tracking, `standings_cache` for season standings. Conflict detection, calendar export (iCal + Google Calendar), schedule change notifications |
+| 29 | Player claim & autonomy | **Claim-based identity linking** — players exist independently, guardians claim via exact-match search. Admin approval workflow. Age-based autonomy: 13+ can link own account, 18+ can manage guardians and control profile. Privacy-preserving search (no browsing) |
+| 30 | Communications & messaging | **Org-scoped real-time messaging** — team channels (auto-created), direct messages, announcements, custom groups. Supabase Realtime WebSocket delivery. Threaded replies, emoji reactions, file attachments. Age-based messaging rules (teens: team channels + coach DMs only). Admin moderation (delete/mute/flag) |
+| 31 | Marketplace | **Team marketplace** — org-scoped listings for used equipment, team gear, fundraiser items. Stripe Connect payments, escrow, seller payouts. Category-based browsing with search |
+| 32 | Mobile app | **React Native/Expo mobile app** — shared codebase for iOS + Android. Biometric auth, push notifications, offline-first schedule sync, real-time chat. Feature parity with core web flows |
+| 33 | Advanced compliance | **Background checks + SafeSport + document vault** — provider-abstracted background checks for coaches/volunteers, SafeSport training tracking with expiration alerts, document storage with e-signatures and retention policies |
 
 ## Open Questions
 
