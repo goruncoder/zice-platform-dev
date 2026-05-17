@@ -1,4 +1,4 @@
-# Zice Platform — Phase 1 & Phase 2 Technical Design Document
+# Zice Platform — Phase 1, Phase 2 & Phase 3 Technical Design Document
 
 > **Codename:** Zice  
 > **Domain (v1):** `zice.io` (configurable via env/config)  
@@ -33,6 +33,7 @@
 21. [Team Blog & Content Publishing](#21-team-blog--content-publishing)
 22. [Platform Administration & Feature Gating](#22-platform-administration--feature-gating)
 23. [Registration, Fees & Payment Processing](#23-registration-fees--payment-processing)
+- [**Phase 3 Overview**](#phase-3-overview)
 24. [Notifications System](#24-notifications-system)
 25. [NGB Registration & Verification](#25-ngb-registration--verification)
 26. [PR Breakdown Strategy](#26-pr-breakdown-strategy)
@@ -43,7 +44,7 @@
 
 Zice is a next-generation multi-tenant sports management platform built around the **"Family-First Universal Passport" identity model**. Unlike legacy systems with a single parent-owner, Zice treats players as independent entities with a flexible web of guardian connections — handling divorce/separation, grandparent access, carpool coordinators, and age-based autonomy transitions seamlessly.
 
-Phase 1 establishes the PostgreSQL schema with strict Row Level Security (RLS). Phase 2 delivers a zero-friction, client-side Roster Auditor tool as a market-entry lead magnet.
+Phase 1 establishes the PostgreSQL schema with strict Row Level Security (RLS). Phase 2 delivers a zero-friction, client-side Roster Auditor tool as a market-entry lead magnet. Phase 3 builds the revenue-generating and operational layers — registration & payments, platform administration, notifications, and NGB compliance.
 
 ---
 
@@ -1224,7 +1225,19 @@ The Go backend starts as a monolith (`zice-core`) but is architected with clear 
 
 | Service | Repo | Description | Status |
 |---|---|---|---|
-| **Core Platform** | `zice-core` | Identity, multi-tenant management, organizations, players, guardians, memberships, rosters, RLS, tenant resolution API | Phase 1 (now) |
+| **Core Platform** | `zice-core` | Identity, multi-tenant management, organizations, players, guardians, memberships, rosters, RLS, tenant resolution API | Phase 1–2 (complete) |
+
+### Phase 3: Monolith Expansion (current)
+
+All Phase 3 features are built within `zice-core` as new domain packages:
+
+| Domain | Package | Description | Sub-Phase |
+|---|---|---|---|
+| **Platform Admin** | `internal/domain/platform/` | Org provisioning, feature flags, impersonation | 3A |
+| **Registration** | `internal/domain/registration/` | Events, registrations, waitlists, fee schedules | 3B |
+| **Payments** | `internal/domain/payment/` | Stripe processor, invoices, refunds, surcharges | 3B |
+| **Notifications** | `internal/domain/notification/` | Dispatch engine, provider abstraction, preferences | 3C |
+| **NGB Compliance** | `internal/domain/ngb/` | NGB types, registrations, verification providers | 3D |
 
 ### Future Iterations: Service Extraction
 
@@ -2112,6 +2125,132 @@ DELETE /api/v1/blog/media/:id                       # Remove attachment
 | `/blog/new` | `BlogEditor` | Rich text editor for creating posts (coach/admin only) |
 | `/blog/:slug/edit` | `BlogEditor` | Edit existing post (author/admin only) |
 | `/admin/blog` | `AdminBlogList` | Admin view of all posts (including drafts/archived), bulk actions |
+
+---
+
+## Phase 3 Overview
+
+Phase 3 builds the **revenue-generating and operational layers** on top of the Phase 1 foundation (schema + RLS) and Phase 2 utility (Roster Auditor). It transforms Zice from a data management tool into a full-featured sports management platform with monetization, communication, and compliance capabilities.
+
+### Phase Summary
+
+| Phase | Focus | Key Deliverable | Sections |
+|---|---|---|---|
+| **Phase 1** | Data Foundation | Multi-tenant schema, RLS, core API, auth | §4–§7 |
+| **Phase 1.5** | Authentication | Supabase Auth, signup/login, onboarding | §5 |
+| **Phase 2** | Market Entry | Roster Auditor (client-side CSV tool) | §6 |
+| **Phase 2.5** | Admin Tooling | Admin dashboard, CRUD, soft deletes, audit log, blog | §16–§21 |
+| **Phase 3** | Revenue & Operations | Payments, platform admin, notifications, NGB compliance | §22–§25 |
+
+### Phase 3 Sub-Phases
+
+Phase 3 is broken into four sub-phases that can be developed in parallel across backend and frontend:
+
+#### Phase 3A: Platform Administration & Feature Gating (§22)
+> **Goal:** Enable Zice staff to provision and control organizations before monetization goes live.
+
+- Two-tier admin model (Platform Admin vs Org Admin)
+- Per-org feature flags (payments, surcharges, custom domains, etc.)
+- Org provisioning + Stripe Connect onboarding
+- User impersonation for support
+- **PRs:** C19–C21, F15–F16
+- **Dependency:** None — can start immediately
+
+#### Phase 3B: Registration, Fees & Payment Processing (§23)
+> **Goal:** Enable clubs to collect registration fees, offer installment plans, and manage finances.
+
+- Event-based registration system (seasons, tryouts, camps, clinics, drop-ins)
+- Payment processor abstraction layer (Stripe first, swappable)
+- Installment plans, sibling discounts, credit card surcharges
+- Capacity limits + waitlists with auto-promotion
+- Invoice generation (PDF) for tax records
+- Configurable refund policies (per event)
+- **PRs:** C15–C18, F12–F14
+- **Dependency:** Phase 3A (feature flags gate payments)
+
+#### Phase 3C: Notifications System (§24)
+> **Goal:** Keep families, coaches, and admins informed across all channels.
+
+- Four channels: Email (Resend), SMS (Twilio), Push (FCM), In-App (Supabase Realtime)
+- 30+ event types across 9 categories
+- Granular per-event per-channel user preferences
+- Coach/admin bulk messaging with audience targeting
+- SMS consent tracking (TCPA compliant)
+- Rate limiting + deduplication + batch digest
+- Provider abstraction layer (swappable per channel)
+- **PRs:** C22–C26, F17–F18
+- **Dependency:** Phase 3B (payment/registration events trigger notifications)
+
+#### Phase 3D: NGB Registration & Verification (§25)
+> **Goal:** Support multi-sport compliance with any National Governing Body.
+
+- Polymorphic `ngb_registrations` table (replaces single `usa_hockey_id`)
+- 8 NGBs supported: USA Hockey, USA Lacrosse, USA Swimming, US Club Soccer, AAU, USA Gymnastics, USA Football, Hockey Canada
+- Format-only validation (Phase 3D.1) → Manual admin verification (Phase 3D.2) → API verification when partnerships secured (Phase 3D.3)
+- Org-level NGB requirement config with optional enforcement
+- Compliance dashboard for admins
+- Migration path from `usa_hockey_id` to `ngb_registrations`
+- **PRs:** C27–C28, F19
+- **Dependency:** None — can be developed in parallel with 3B/3C
+
+### Phase 3 Recommended Build Order
+
+```mermaid
+gantt
+    title Phase 3 Implementation Timeline
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %d
+
+    section 3A: Platform Admin
+    C19 Platform admin schema          :a1, 2026-06-01, 5d
+    C20 Platform admin API + middleware :a2, after a1, 5d
+    C21 Stripe Connect + impersonation :a3, after a2, 5d
+    F15 Platform admin dashboard UI    :a4, after a2, 5d
+    F16 Stripe setup + impersonation UI:a5, after a3, 5d
+
+    section 3B: Registration + Payments
+    C15 Registration schema            :b1, after a1, 5d
+    C16 Payment processor abstraction  :b2, after b1, 5d
+    C17 Registration API + fee engine  :b3, after b2, 5d
+    C18 Invoice + payment API          :b4, after b3, 5d
+    F12 Event browsing + registration  :b5, after b3, 5d
+    F13 Invoice + payment UI           :b6, after b4, 5d
+    F14 Admin event + finance UI       :b7, after b4, 5d
+
+    section 3C: Notifications
+    C22 Notification schema            :c1, after b1, 5d
+    C23 Dispatch engine + abstraction  :c2, after c1, 5d
+    C24 Email + SMS providers          :c3, after c2, 5d
+    C25 Push + in-app providers        :c4, after c3, 5d
+    C26 Bulk messaging + analytics     :c5, after c4, 3d
+    F17 Notification preferences UI    :c6, after c4, 5d
+    F18 Admin message composer UI      :c7, after c5, 5d
+
+    section 3D: NGB Compliance
+    D1 C27 NGB schema + migration      :d1, 2026-06-01, 5d
+    D2 C28 Verification engine         :d2, after d1, 5d
+    D3 F19 Compliance dashboard UI     :d3, after d2, 5d
+```
+
+### Phase 3 PR Summary
+
+| Sub-Phase | Backend PRs | Frontend PRs | Total PRs | Est. LOC |
+|---|---|---|---|---|
+| 3A: Platform Admin | C19–C21 (3) | F15–F16 (2) | 5 | ~2,000 |
+| 3B: Registration + Payments | C15–C18 (4) | F12–F14 (3) | 7 | ~3,500 |
+| 3C: Notifications | C22–C26 (5) | F17–F18 (2) | 7 | ~3,000 |
+| 3D: NGB Compliance | C27–C28 (2) | F19 (1) | 3 | ~1,500 |
+| **Total Phase 3** | **14** | **8** | **22** | **~10,000** |
+
+### Phase 3 Exit Criteria
+
+Phase 3 is complete when:
+1. A platform admin can provision a new org, enable feature flags, and connect Stripe
+2. An org admin can create registration events with fee schedules, installment plans, and capacity limits
+3. A guardian can register a player, pay fees (including CC surcharge), and receive an invoice
+4. All stakeholders receive notifications via their preferred channels (email, SMS, push, in-app)
+5. An org admin can configure NGB requirements and players can submit registration numbers
+6. All notifications respect user preferences, rate limits, and SMS consent
 
 ---
 
