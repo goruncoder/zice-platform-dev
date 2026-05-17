@@ -31,7 +31,11 @@
 19. [Admin Dashboard — Full CRUD](#19-admin-dashboard--full-crud)
 20. [User Audit Log](#20-user-audit-log)
 21. [Team Blog & Content Publishing](#21-team-blog--content-publishing)
-22. [PR Breakdown Strategy](#22-pr-breakdown-strategy)
+22. [Platform Administration & Feature Gating](#22-platform-administration--feature-gating)
+23. [Registration, Fees & Payment Processing](#23-registration-fees--payment-processing)
+24. [Notifications System](#24-notifications-system)
+25. [NGB Registration & Verification](#25-ngb-registration--verification)
+26. [PR Breakdown Strategy](#26-pr-breakdown-strategy)
 
 ---
 
@@ -2111,7 +2115,1384 @@ DELETE /api/v1/blog/media/:id                       # Remove attachment
 
 ---
 
-## 22. PR Breakdown Strategy
+## 22. Platform Administration & Feature Gating
+
+The platform has two distinct admin tiers: **Platform Admins** (Zice staff who manage the entire SaaS) and **Org/Team Admins** (club administrators who manage their own organization). Org admins are super-users within their tenant but are gated by platform-level feature flags that only platform admins can enable.
+
+### 22.1 Admin Tier Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PLATFORM ADMIN                           │
+│  (Zice staff — global super-user)                           │
+│                                                             │
+│  Can: provision orgs, enable/disable features per org,      │
+│       manage platform-wide settings, impersonate users,     │
+│       view all orgs, access support tools                   │
+├─────────────────────────────────────────────────────────────┤
+│               ORG / TEAM ADMIN                              │
+│  (Club administrator — scoped to their org)                 │
+│                                                             │
+│  Can: full CRUD on players, guardians, rosters, staff,      │
+│       blog, events — BUT only features the platform         │
+│       admin has enabled for their org                       │
+├─────────────────────────────────────────────────────────────┤
+│            COACH / PARENT / PLAYER                          │
+│  (Regular users — scoped by role + RLS)                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 22.2 Platform Admin Identity
+
+Platform admins are stored in a dedicated table (not in `memberships`, since they are not scoped to any single org):
+
+```sql
+CREATE TABLE platform_admins (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) UNIQUE,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'support' CHECK (role IN ('super_admin', 'support', 'billing')),
+  permissions TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_platform_admins_user ON platform_admins(user_id) WHERE deleted_at IS NULL;
+```
+
+**Platform Admin Roles:**
+
+| Role | Description | Capabilities |
+|---|---|---|
+| `super_admin` | Full platform control | Everything — org provisioning, feature flags, billing, impersonation, platform config |
+| `support` | Customer support | Read-only access to all orgs, impersonate users for debugging, manage support tickets |
+| `billing` | Financial operations | Manage Stripe Connect accounts, view payment reports across orgs, process platform-level refunds |
+
+### 22.3 Organization Feature Flags
+
+Each organization has a set of features that are enabled/disabled by platform admins. Org admins cannot use features that haven't been enabled for their org.
+
+```sql
+CREATE TABLE org_feature_flags (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id),
+  feature TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  -- Configuration for the feature (limits, settings, etc.)
+  config JSONB NOT NULL DEFAULT '{}',
+  -- Who enabled it and when
+  enabled_by UUID REFERENCES platform_admins(id),
+  enabled_at TIMESTAMPTZ,
+  disabled_by UUID REFERENCES platform_admins(id),
+  disabled_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (org_id, feature)
+);
+
+CREATE INDEX idx_org_feature_flags_org ON org_feature_flags(org_id);
+```
+
+**Feature Flag Registry:**
+
+| Feature Key | Description | Default | Config Options |
+|---|---|---|---|
+| `payments` | Accept payments via Stripe | `false` | `{"stripe_connect_id": "...", "payout_schedule": "daily"}` |
+| `credit_card_surcharges` | Allow org to pass CC surcharges to payers | `false` | `{"max_surcharge_percent": 3.5}` |
+| `installment_plans` | Allow orgs to offer installment billing | `false` | `{"max_installments": 12}` |
+| `sibling_discounts` | Allow family/sibling discount configuration | `true` | `{}` |
+| `blog` | Team blog / content publishing | `true` | `{"max_media_size_mb": 50}` |
+| `bulk_import` | CSV bulk import for rosters/guardians | `true` | `{"max_rows_per_import": 500}` |
+| `custom_domain` | BYOD custom domain support | `false` | `{"domain": "...", "ssl_provisioned": false}` |
+| `waitlists` | Waitlist support for capacity-limited events | `true` | `{}` |
+| `invoicing` | PDF invoice generation + download | `false` | `{}` |
+| `api_access` | Third-party API access for the org | `false` | `{"rate_limit_rpm": 60}` |
+
+> **Design principle**: Features default to `false` for paid/complex capabilities (payments, surcharges, custom domains) and `true` for core features (blog, import, discounts). Platform admins explicitly enable paid features during org onboarding.
+
+### 22.4 Gating Enforcement
+
+Feature gating is enforced at **two layers**:
+
+**1. API Layer (Go middleware)**
+
+```go
+// internal/middleware/feature_gate.go
+func RequireFeature(feature string) func(http.Handler) http.Handler {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            orgID := r.Context().Value(ctxOrgID).(uuid.UUID)
+            enabled, config := featureFlags.Check(orgID, feature)
+            if !enabled {
+                respondError(w, http.StatusForbidden,
+                    fmt.Sprintf("Feature '%s' is not enabled for this organization. Contact platform support.", feature))
+                return
+            }
+            // Inject feature config into context for handler use
+            ctx := context.WithValue(r.Context(), ctxFeatureConfig, config)
+            next.ServeHTTP(w, r.WithContext(ctx))
+        })
+    }
+}
+
+// Usage in router:
+r.Route("/orgs/{orgID}/events/{eventID}/fees", func(r chi.Router) {
+    r.Use(RequireFeature("payments"))
+    r.Get("/", handlers.GetFeeSchedule)
+    r.Put("/", handlers.UpdateFeeSchedule)
+})
+```
+
+**2. Frontend Layer (React context)**
+
+```typescript
+// Feature flags are fetched on org load and cached in context
+const { isFeatureEnabled } = useOrgFeatures();
+
+// Components conditionally render based on flags
+{isFeatureEnabled('payments') && <PaymentSection />}
+
+// Navigation items hidden if feature is disabled
+{isFeatureEnabled('blog') && <NavItem href="/blog">Blog</NavItem>}
+```
+
+### 22.5 Platform Admin API Endpoints
+
+```
+# Platform Admin — Org Management
+GET    /api/v1/platform/orgs                          # List all orgs (paginated, searchable)
+GET    /api/v1/platform/orgs/:id                      # Get org details + feature flags + usage stats
+POST   /api/v1/platform/orgs                          # Provision new org
+PUT    /api/v1/platform/orgs/:id                      # Update org settings
+DELETE /api/v1/platform/orgs/:id                      # Soft-delete org (platform admin only)
+PUT    /api/v1/platform/orgs/:id/restore              # Restore soft-deleted org
+
+# Platform Admin — Feature Flags
+GET    /api/v1/platform/orgs/:id/features             # List all feature flags for org
+PUT    /api/v1/platform/orgs/:id/features/:feature    # Enable/disable feature + set config
+POST   /api/v1/platform/orgs/:id/features/bulk        # Bulk enable/disable features (onboarding)
+
+# Platform Admin — Payments Setup
+POST   /api/v1/platform/orgs/:id/stripe/connect       # Create Stripe Connect account for org
+GET    /api/v1/platform/orgs/:id/stripe/status         # Check Stripe onboarding status
+PUT    /api/v1/platform/orgs/:id/stripe/disconnect     # Disconnect Stripe account
+
+# Platform Admin — Support Tools
+POST   /api/v1/platform/impersonate/:user_id          # Impersonate a user (audit-logged, time-limited)
+GET    /api/v1/platform/audit                          # Platform-wide audit log
+GET    /api/v1/platform/orgs/:id/audit                # Org-specific audit log (support view)
+
+# Platform Admin — Platform Admin Management
+GET    /api/v1/platform/admins                         # List platform admins
+POST   /api/v1/platform/admins                         # Create platform admin
+PUT    /api/v1/platform/admins/:id                     # Update platform admin role/permissions
+DELETE /api/v1/platform/admins/:id                     # Remove platform admin
+
+# Platform Admin — Dashboard / Analytics
+GET    /api/v1/platform/stats                          # Platform-wide stats (total orgs, users, revenue)
+GET    /api/v1/platform/finance/summary                # Platform-wide financial summary
+```
+
+### 22.6 RLS Policies for Platform Admins
+
+```sql
+-- Helper function: is the current user a platform admin?
+CREATE OR REPLACE FUNCTION is_platform_admin()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM platform_admins
+    WHERE user_id = auth.uid() AND deleted_at IS NULL
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Helper function: is the current user a platform admin with a specific role?
+CREATE OR REPLACE FUNCTION is_platform_admin_with_role(required_role TEXT)
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM platform_admins
+    WHERE user_id = auth.uid() AND role = required_role AND deleted_at IS NULL
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Platform admins can read ALL organizations (bypass tenant isolation)
+CREATE POLICY platform_admin_read_all_orgs ON organizations FOR SELECT
+  USING (is_platform_admin());
+
+-- Platform admins can read ALL memberships across all orgs
+CREATE POLICY platform_admin_read_all_memberships ON memberships FOR SELECT
+  USING (is_platform_admin());
+
+-- Platform admins can read ALL players across all orgs
+CREATE POLICY platform_admin_read_all_players ON players FOR SELECT
+  USING (is_platform_admin());
+
+-- org_feature_flags: platform admins can CRUD, org members can read their own
+CREATE POLICY feature_flags_platform_admin ON org_feature_flags
+  FOR ALL USING (is_platform_admin());
+
+CREATE POLICY feature_flags_org_read ON org_feature_flags FOR SELECT
+  USING (
+    org_id IN (SELECT org_id FROM memberships WHERE user_id = auth.uid() AND deleted_at IS NULL)
+  );
+```
+
+> **Existing RLS policies remain unchanged.** Platform admin policies are additive — they grant platform admins bypass access on top of the existing tenant-scoped policies.
+
+### 22.7 Feature Gating Interaction Matrix
+
+This table shows what happens when an org admin tries to use a feature:
+
+| Feature | Platform Admin Action Required | Org Admin Sees If Disabled | Org Admin Can Do If Enabled |
+|---|---|---|---|
+| Payments | Enable `payments` + set up Stripe Connect | "Payments not available. Contact Zice support to enable." | Configure fee schedules, accept payments |
+| CC Surcharges | Enable `credit_card_surcharges` | Surcharge toggle hidden in fee schedule config | Configure surcharge % per event |
+| Installments | Enable `installment_plans` | Installment fields hidden in fee schedule config | Configure installment count/frequency per event |
+| Blog | Enable `blog` (default: on) | Blog nav item hidden | Full blog management |
+| Bulk Import | Enable `bulk_import` (default: on) | Import buttons hidden | CSV import for rosters/guardians |
+| Custom Domain | Enable `custom_domain` + configure DNS | Custom domain setting hidden | See their custom domain URL |
+| Waitlists | Enable `waitlists` (default: on) | Waitlist toggle hidden in event config | Enable waitlist per event |
+| Invoicing | Enable `invoicing` | Download/PDF buttons hidden | Generate and download invoices |
+| API Access | Enable `api_access` | API key section hidden | Generate API keys, use API |
+
+### 22.8 Impersonation & Support
+
+Platform admins (role: `support` or `super_admin`) can impersonate any user for debugging:
+
+- **Impersonation is time-limited** (default: 30 minutes, max: 2 hours)
+- **Every impersonated action is audit-logged** with both the platform admin's ID and the impersonated user's ID
+- **Visual indicator**: When impersonating, the frontend shows a persistent banner: "⚠️ Viewing as [User Name] — [org name]. Impersonation active."
+- **Read-heavy**: Impersonation is primarily for viewing what a user sees, not for making changes on their behalf (though write access is available for `super_admin` role)
+
+### 22.9 Org Onboarding Flow (Platform Admin)
+
+```mermaid
+sequenceDiagram
+    participant PA as Platform Admin
+    participant API as zice-core
+    participant Stripe as Stripe Connect
+    participant OA as Org Admin
+
+    PA->>API: POST /platform/orgs (name, slug, contact email)
+    API->>API: Create organization + default feature flags
+    API-->>PA: Org created (ID, invite link)
+
+    PA->>API: PUT /platform/orgs/:id/features/bulk
+    Note over PA: Enable: payments, blog, import, etc.
+
+    opt Payments Enabled
+        PA->>API: POST /platform/orgs/:id/stripe/connect
+        API->>Stripe: Create Connect account
+        Stripe-->>API: Onboarding URL
+        API-->>PA: Send onboarding URL to org admin
+        OA->>Stripe: Complete Stripe onboarding
+        Stripe-->>API: Webhook: account.updated
+        API->>API: Store stripe_connect_id, mark payments ready
+    end
+
+    PA->>API: Generate admin invite for org
+    API-->>OA: Email invite link
+    OA->>API: Accept invite → becomes org admin
+```
+
+### 22.10 Frontend Pages (Platform Admin)
+
+| Route | Component | Description |
+|---|---|---|
+| `/platform` | `PlatformDashboard` | Overview: total orgs, users, revenue, recent activity |
+| `/platform/orgs` | `PlatformOrgList` | All organizations with search, filter, status indicators |
+| `/platform/orgs/:id` | `PlatformOrgDetail` | Org detail: settings, feature flags toggles, usage stats, Stripe status |
+| `/platform/orgs/:id/features` | `PlatformFeatureFlags` | Toggle features on/off, configure limits per feature |
+| `/platform/orgs/:id/stripe` | `PlatformStripeSetup` | Stripe Connect onboarding, status, disconnect |
+| `/platform/orgs/new` | `PlatformOrgCreate` | Provision new org + initial feature setup |
+| `/platform/admins` | `PlatformAdminList` | Manage platform admin accounts |
+| `/platform/audit` | `PlatformAuditLog` | Platform-wide audit log with cross-org search |
+| `/platform/finance` | `PlatformFinance` | Platform-wide financial overview (MRR, processing volume, payouts) |
+| `/platform/impersonate` | `PlatformImpersonate` | User lookup + impersonation launcher |
+
+### 22.11 PR Breakdown (Platform Admin)
+
+| PR # | Title | Repo | Est. Size | Description |
+|---|---|---|---|---|
+| C19 | Platform admin schema — table, feature flags, RLS | zice-core | Medium | `platform_admins`, `org_feature_flags` tables, helper functions, RLS policies |
+| C20 | Platform admin API + feature gating middleware | zice-core | Medium | Platform admin CRUD, org provisioning, feature flag management, `RequireFeature` middleware |
+| C21 | Stripe Connect + impersonation endpoints | zice-core | Medium | Stripe Connect onboarding, status check, impersonation with audit logging |
+| F15 | Platform admin dashboard + org management UI | zice-frontend | Medium | Platform dashboard, org list/detail, feature flag toggles |
+| F16 | Platform Stripe setup + impersonation UI | zice-frontend | Medium | Stripe onboarding flow, impersonation banner + launcher |
+
+---
+
+## 23. Registration, Fees & Payment Processing
+
+Players register for classes (clinics, camps, drop-ins, summer camps, etc.) or full seasons. Fees are collected upfront or via installment plans. The system supports tryout-first workflows where a non-refundable tryout fee is paid first and remaining fees are due only if the player makes the team.
+
+### 23.1 Core Concepts
+
+| Concept | Description |
+|---|---|
+| **Event** | A registrable activity: season, tryout, clinic, camp, drop-in, summer camp, etc. Fully configurable by org admins. |
+| **Registration** | A player's enrollment in an event. Tracks status through the lifecycle: `pending` → `confirmed` → `completed` / `cancelled` / `waitlisted`. |
+| **Fee Schedule** | The pricing structure for an event: total amount, installment plan, surcharges, discounts. Each event has exactly one fee schedule. |
+| **Invoice** | An itemized bill for a registration. Generated automatically. Guardians/players can download for tax records. |
+| **Payment** | A single transaction against an invoice. May be partial (installment) or full. |
+| **Payment Processor** | Abstraction layer over Stripe (initial), swappable to Square, PayPal, etc. |
+
+### 23.2 Database Schema
+
+```sql
+-- Registrable events (org-scoped)
+CREATE TABLE events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id),
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'season', 'tryout', 'clinic', 'camp', 'drop_in', 'summer_camp', 'tournament', 'other'
+  )),
+  -- Linked season/tryout relationship
+  parent_event_id UUID REFERENCES events(id),  -- e.g., tryout → season link
+  team_designation TEXT,                        -- e.g., "14U Gold"
+  season TEXT,                                  -- e.g., "2025-2026"
+  -- Capacity
+  capacity INT,                                 -- NULL = unlimited
+  waitlist_enabled BOOLEAN NOT NULL DEFAULT false,
+  -- Dates
+  registration_opens_at TIMESTAMPTZ,
+  registration_deadline TIMESTAMPTZ,            -- hard cutoff, no late registrations accepted
+  starts_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ,
+  -- Status
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'open', 'closed', 'cancelled')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  UNIQUE (org_id, slug)
+);
+
+-- Fee schedules (one per event)
+CREATE TABLE fee_schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES events(id) UNIQUE,
+  total_amount_cents INT NOT NULL CHECK (total_amount_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'usd',
+  -- Installment configuration
+  installments_enabled BOOLEAN NOT NULL DEFAULT false,
+  installment_count INT CHECK (installment_count >= 2),
+  installment_frequency TEXT CHECK (installment_frequency IN ('weekly', 'biweekly', 'monthly')),
+  -- first installment can differ (e.g., larger deposit)
+  first_installment_cents INT,
+  -- Surcharges
+  credit_card_surcharge_enabled BOOLEAN NOT NULL DEFAULT false,
+  credit_card_surcharge_percent NUMERIC(5,3) CHECK (credit_card_surcharge_percent >= 0 AND credit_card_surcharge_percent <= 10),
+  -- Refund policy
+  refundable BOOLEAN NOT NULL DEFAULT true,
+  refund_policy_description TEXT,              -- human-readable policy text
+  refund_deadline TIMESTAMPTZ,                 -- after this date, no refunds
+  -- Family/sibling discounts
+  sibling_discount_enabled BOOLEAN NOT NULL DEFAULT false,
+  sibling_discount_type TEXT CHECK (sibling_discount_type IN ('percent', 'fixed')),
+  sibling_discount_value INT,                  -- percent (0-100) or cents
+  sibling_discount_starts_at_child INT DEFAULT 2,  -- discount kicks in at Nth child
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Registrations
+CREATE TABLE registrations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES events(id),
+  player_id UUID NOT NULL REFERENCES players(id),
+  org_id UUID NOT NULL REFERENCES organizations(id),
+  -- Who registered (guardian or adult player)
+  registered_by UUID NOT NULL REFERENCES auth.users(id),
+  -- Status lifecycle
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+    'pending', 'confirmed', 'waitlisted', 'completed', 'cancelled', 'no_show'
+  )),
+  waitlist_position INT,                       -- NULL if not waitlisted
+  -- Tryout → season promotion
+  promoted_from_registration_id UUID REFERENCES registrations(id),
+  -- Timestamps
+  confirmed_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
+  cancellation_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  UNIQUE (event_id, player_id)
+);
+
+-- Invoices
+CREATE TABLE invoices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  registration_id UUID NOT NULL REFERENCES registrations(id),
+  org_id UUID NOT NULL REFERENCES organizations(id),
+  -- Payer (guardian or adult player 18+)
+  payer_user_id UUID NOT NULL REFERENCES auth.users(id),
+  -- Amounts
+  subtotal_cents INT NOT NULL,
+  discount_cents INT NOT NULL DEFAULT 0,
+  surcharge_cents INT NOT NULL DEFAULT 0,
+  total_cents INT NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'usd',
+  -- Discount details
+  discount_type TEXT,                          -- 'sibling', 'custom', etc.
+  discount_description TEXT,
+  -- Status
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+    'draft', 'sent', 'partially_paid', 'paid', 'overdue', 'refunded', 'void'
+  )),
+  due_date DATE,
+  issued_at TIMESTAMPTZ,
+  paid_at TIMESTAMPTZ,
+  -- Invoice number for records
+  invoice_number TEXT NOT NULL,
+  -- PDF/receipt
+  receipt_url TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+-- Invoice line items (for installments + itemization)
+CREATE TABLE invoice_line_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  invoice_id UUID NOT NULL REFERENCES invoices(id),
+  description TEXT NOT NULL,
+  amount_cents INT NOT NULL,
+  item_type TEXT NOT NULL CHECK (item_type IN (
+    'registration_fee', 'tryout_fee', 'installment', 'surcharge', 'discount', 'refund'
+  )),
+  due_date DATE,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Payments (processor-agnostic)
+CREATE TABLE payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  invoice_id UUID NOT NULL REFERENCES invoices(id),
+  -- Processor abstraction
+  processor TEXT NOT NULL DEFAULT 'stripe',    -- 'stripe', 'square', 'paypal', etc.
+  processor_payment_id TEXT,                   -- external ID (e.g., Stripe PaymentIntent ID)
+  processor_fee_cents INT,                     -- processor's fee for this transaction
+  -- Amounts
+  amount_cents INT NOT NULL CHECK (amount_cents > 0),
+  currency TEXT NOT NULL DEFAULT 'usd',
+  -- Payment method
+  payment_method TEXT NOT NULL CHECK (payment_method IN (
+    'credit_card', 'debit_card', 'ach', 'check', 'cash', 'other'
+  )),
+  -- Credit card surcharge (tracked separately)
+  surcharge_cents INT NOT NULL DEFAULT 0,
+  -- Status
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+    'pending', 'processing', 'succeeded', 'failed', 'refunded', 'partially_refunded'
+  )),
+  failure_reason TEXT,
+  -- Refund tracking
+  refund_amount_cents INT DEFAULT 0,
+  refunded_at TIMESTAMPTZ,
+  -- Timestamps
+  paid_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Indexes
+CREATE INDEX idx_events_org_status ON events(org_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_events_org_type ON events(org_id, event_type) WHERE deleted_at IS NULL;
+CREATE INDEX idx_registrations_event ON registrations(event_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_registrations_player ON registrations(player_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_registrations_org ON registrations(org_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_invoices_registration ON invoices(registration_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_invoices_payer ON invoices(payer_user_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_invoices_org ON invoices(org_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_payments_invoice ON payments(invoice_id);
+CREATE INDEX idx_payments_processor ON payments(processor, processor_payment_id);
+CREATE UNIQUE INDEX idx_invoices_number ON invoices(org_id, invoice_number);
+```
+
+### 23.3 RLS Policies
+
+```sql
+-- events: org members can read open events
+CREATE POLICY events_read ON events FOR SELECT
+  USING (
+    org_id IN (SELECT org_id FROM memberships WHERE user_id = auth.uid() AND deleted_at IS NULL)
+    AND deleted_at IS NULL
+  );
+
+-- events: admins can create/update events
+CREATE POLICY events_insert ON events FOR INSERT
+  WITH CHECK (
+    org_id IN (SELECT org_id FROM memberships WHERE user_id = auth.uid() AND role = 'admin' AND deleted_at IS NULL)
+  );
+
+CREATE POLICY events_update ON events FOR UPDATE
+  USING (
+    org_id IN (SELECT org_id FROM memberships WHERE user_id = auth.uid() AND role = 'admin' AND deleted_at IS NULL)
+  );
+
+-- registrations: guardians can register their players, adult players can self-register
+CREATE POLICY registrations_insert ON registrations FOR INSERT
+  WITH CHECK (
+    registered_by = auth.uid()
+    AND (
+      -- Guardian registering their player
+      EXISTS (SELECT 1 FROM player_guardians WHERE user_id = auth.uid() AND player_id = registrations.player_id
+              AND 'financial' = ANY(permissions) AND is_active = true)
+      OR
+      -- Adult player (18+) self-registering
+      EXISTS (SELECT 1 FROM players WHERE id = registrations.player_id AND player_user_id = auth.uid()
+              AND EXTRACT(YEAR FROM age(dob)) >= 18)
+    )
+  );
+
+-- registrations: org members can read their own registrations, admins can read all
+CREATE POLICY registrations_read ON registrations FOR SELECT
+  USING (
+    deleted_at IS NULL AND (
+      registered_by = auth.uid()
+      OR EXISTS (SELECT 1 FROM memberships WHERE user_id = auth.uid() AND org_id = registrations.org_id AND role = 'admin' AND deleted_at IS NULL)
+      -- Player can see own registration
+      OR EXISTS (SELECT 1 FROM players WHERE id = registrations.player_id AND player_user_id = auth.uid())
+    )
+  );
+
+-- registrations: admins can update status
+CREATE POLICY registrations_update ON registrations FOR UPDATE
+  USING (
+    EXISTS (SELECT 1 FROM memberships WHERE user_id = auth.uid() AND org_id = registrations.org_id AND role = 'admin' AND deleted_at IS NULL)
+    OR registered_by = auth.uid()  -- guardian can cancel
+  );
+
+-- invoices: payer or admin can read
+CREATE POLICY invoices_read ON invoices FOR SELECT
+  USING (
+    deleted_at IS NULL AND (
+      payer_user_id = auth.uid()
+      OR EXISTS (SELECT 1 FROM memberships WHERE user_id = auth.uid() AND org_id = invoices.org_id AND role = 'admin' AND deleted_at IS NULL)
+    )
+  );
+
+-- invoices: system/admin creates (via API, not direct user insert)
+CREATE POLICY invoices_insert ON invoices FOR INSERT
+  WITH CHECK (
+    org_id IN (SELECT org_id FROM memberships WHERE user_id = auth.uid() AND role = 'admin' AND deleted_at IS NULL)
+  );
+
+-- payments: payer or admin can read
+CREATE POLICY payments_read ON payments FOR SELECT
+  USING (
+    invoice_id IN (SELECT id FROM invoices WHERE payer_user_id = auth.uid() OR
+      org_id IN (SELECT org_id FROM memberships WHERE user_id = auth.uid() AND role = 'admin' AND deleted_at IS NULL))
+  );
+```
+
+### 23.4 Payment Processor Abstraction Layer
+
+The payment system is designed processor-agnostic. The core domain logic never calls Stripe (or any processor) directly. Instead, a `PaymentProcessor` interface is implemented per provider.
+
+```go
+// internal/payments/processor.go
+type PaymentProcessor interface {
+    // CreatePaymentIntent initiates a payment
+    CreatePaymentIntent(ctx context.Context, req PaymentRequest) (*PaymentResult, error)
+    // ConfirmPayment confirms a pending payment (webhook-driven)
+    ConfirmPayment(ctx context.Context, processorPaymentID string) (*PaymentResult, error)
+    // RefundPayment issues a full or partial refund
+    RefundPayment(ctx context.Context, processorPaymentID string, amountCents int) (*RefundResult, error)
+    // GetPaymentStatus checks current status
+    GetPaymentStatus(ctx context.Context, processorPaymentID string) (*PaymentStatus, error)
+}
+
+type PaymentRequest struct {
+    AmountCents    int
+    Currency       string
+    Description    string
+    CustomerEmail  string
+    Metadata       map[string]string  // org_id, registration_id, invoice_id
+    PaymentMethod  string             // "credit_card", "ach", etc.
+    SurchargeCents int                // credit card surcharge if applicable
+}
+
+type PaymentResult struct {
+    ProcessorPaymentID string
+    Status             string  // "pending", "succeeded", "failed"
+    ProcessorFeeCents  int
+    ClientSecret       string  // for frontend confirmation (Stripe-specific, optional)
+}
+
+type RefundResult struct {
+    ProcessorRefundID string
+    Status            string
+    AmountCents       int
+}
+```
+
+**Initial implementation**: `StripeProcessor` using Stripe Go SDK.  
+**Swapping processors**: Implement the interface for Square/PayPal/etc. Select via `organizations.metadata["payment_processor"]` or a dedicated config column. No domain logic changes required.
+
+### 23.5 Registration Flows
+
+#### Flow 1: Standard Season Registration
+
+```mermaid
+sequenceDiagram
+    participant G as Guardian / Player (18+)
+    participant FE as Frontend
+    participant API as zice-core
+    participant PP as Payment Processor
+    participant DB as Supabase
+
+    G->>FE: Browse events → select season
+    FE->>API: POST /orgs/:id/events/:eid/register
+    API->>DB: Check capacity, deadline, eligibility
+    API->>DB: Create registration (status=pending)
+    API->>DB: Generate invoice + line items
+    API->>DB: Apply sibling discount (if applicable)
+    API-->>FE: Return invoice with payment details
+
+    alt Full payment
+        FE->>PP: Create payment (total_cents + surcharge)
+        PP-->>FE: Payment confirmed
+        FE->>API: POST /payments/confirm
+        API->>DB: Update payment status=succeeded
+        API->>DB: Update invoice status=paid
+        API->>DB: Update registration status=confirmed
+    else Installment plan
+        FE->>PP: Create payment (first installment + surcharge)
+        PP-->>FE: Payment confirmed
+        FE->>API: POST /payments/confirm
+        API->>DB: Update first payment status=succeeded
+        API->>DB: Update invoice status=partially_paid
+        API->>DB: Update registration status=confirmed
+        Note over API: Remaining installments billed on schedule
+    end
+
+    API-->>FE: Registration confirmed + receipt
+```
+
+#### Flow 2: Tryout → Season (Conditional Registration)
+
+```mermaid
+sequenceDiagram
+    participant G as Guardian
+    participant FE as Frontend
+    participant API as zice-core
+    participant PP as Payment Processor
+    participant Admin as Org Admin
+
+    G->>FE: Register for tryout
+    FE->>API: POST /orgs/:id/events/:tryout_eid/register
+    API->>DB: Create registration + invoice (tryout fee only)
+    Note over API: Tryout fee is non-refundable (default)
+    FE->>PP: Pay tryout fee
+    PP-->>FE: Payment confirmed
+    API->>DB: Registration confirmed for tryout
+
+    Note over Admin: Tryout happens...
+
+    Admin->>API: PUT /registrations/:id/promote (player made team)
+    API->>DB: Create season registration (promoted_from_registration_id = tryout reg)
+    API->>DB: Generate season invoice (total - tryout fee already paid)
+    API-->>G: Notification: "Player made the team! Pay remaining fees."
+
+    G->>FE: Pay remaining season fees (full or installments)
+    FE->>PP: Process payment
+    API->>DB: Update registration status=confirmed
+```
+
+#### Flow 3: Waitlist
+
+```mermaid
+sequenceDiagram
+    participant G as Guardian
+    participant API as zice-core
+    participant DB as Supabase
+
+    G->>API: POST /orgs/:id/events/:eid/register
+    API->>DB: Check capacity → event full
+    API->>DB: Create registration (status=waitlisted, waitlist_position=N)
+    API-->>G: "You are #N on the waitlist"
+
+    Note over DB: Another player cancels...
+    API->>DB: Promote next waitlisted player
+    API->>DB: Generate invoice for promoted player
+    API-->>G: "A spot opened! Complete payment within 48h."
+```
+
+### 23.6 Credit Card Surcharges
+
+Surcharges are configurable per event via `fee_schedules.credit_card_surcharge_enabled` and `credit_card_surcharge_percent`.
+
+**Rules:**
+- Surcharge is only applied to credit card payments (not debit, ACH, check, or cash)
+- Surcharge percentage is configurable per event (typical: 2.5–3.5%)
+- Surcharge is itemized separately on the invoice (legal requirement in most US states)
+- Surcharge is calculated at payment time: `surcharge_cents = CEIL(amount_cents * surcharge_percent / 100)`
+- Tracked in both `invoice_line_items` (type=`surcharge`) and `payments.surcharge_cents`
+
+### 23.7 Family / Sibling Discounts
+
+When multiple players from the same family register for the same event:
+
+**Calculation:**
+1. Identify all registrations for the same event where `registered_by` is the same user (guardian) or players share a common guardian (via `player_guardians`)
+2. Sort by registration `created_at` (first-come ordering)
+3. Apply discount starting at the Nth child (`sibling_discount_starts_at_child`, default: 2nd child)
+4. Discount type: `percent` (e.g., 10% off) or `fixed` (e.g., $50 off per additional sibling)
+
+**Example:** Season fee = $2,000. Sibling discount = 15% starting at 2nd child.
+- Child 1: $2,000 (full price)
+- Child 2: $1,700 (15% off = $300 discount)
+- Child 3: $1,700 (15% off = $300 discount)
+
+### 23.8 Installment Plans
+
+When `fee_schedules.installments_enabled = true`:
+
+- **installment_count**: Number of payments (e.g., 4)
+- **installment_frequency**: `weekly`, `biweekly`, or `monthly`
+- **first_installment_cents**: Optional larger first payment (deposit). If NULL, all installments are equal.
+- Invoice line items are generated for each installment with staggered `due_date` values
+- First installment is collected at registration time
+- Subsequent installments are billed on schedule (webhook or cron-triggered)
+- Credit card surcharge applies to each individual installment payment
+
+**Example:** $2,000 season fee, 4 monthly installments, $600 deposit:
+1. Payment 1 (at registration): $600
+2. Payment 2 (month 2): $466.67
+3. Payment 3 (month 3): $466.67
+4. Payment 4 (month 4): $466.66
+
+### 23.9 Refund Policy
+
+- **Default**: Refundable (configurable per event via `fee_schedules.refundable`)
+- **Tryout fees**: Non-refundable by default (`refundable = false` on tryout events)
+- **Refund deadline**: Optional date after which refunds are not issued (`refund_deadline`)
+- **Refund processing**: Uses `PaymentProcessor.RefundPayment()` to issue refund through the original processor
+- **Partial refunds**: Supported (e.g., refund remaining installments but keep what's already paid)
+- **Surcharge refunds**: Credit card surcharges are NOT refunded (industry standard)
+- **Cancellation**: Guardian/player can cancel registration. Admin can also cancel. Refund is processed per policy.
+
+### 23.10 Invoicing & Receipts
+
+- Invoices are auto-generated when a registration is created
+- Each invoice has a unique `invoice_number` per org (format: `INV-{ORG_SLUG}-{YYYYMM}-{SEQ}`, e.g., `INV-JOLIET-202510-0001`)
+- Line items break down: registration fee, discounts, surcharges, installments
+- Guardians/players can download invoices as PDF for tax records
+- Invoice statuses: `draft` → `sent` → `partially_paid` → `paid` (or `overdue`, `refunded`, `void`)
+- Receipt URL is stored after successful payment for download
+
+### 23.11 API Endpoints
+
+```
+# Events (admin management)
+GET    /api/v1/orgs/:org_id/events                     # List events (filterable by type, status, season)
+GET    /api/v1/orgs/:org_id/events/:id                  # Get event details + fee schedule
+POST   /api/v1/orgs/:org_id/events                      # Create event (admin)
+PUT    /api/v1/orgs/:org_id/events/:id                  # Update event (admin)
+DELETE /api/v1/orgs/:org_id/events/:id                  # Soft-delete event (admin)
+PUT    /api/v1/orgs/:org_id/events/:id/open             # Open registration (admin)
+PUT    /api/v1/orgs/:org_id/events/:id/close            # Close registration (admin)
+
+# Fee Schedules
+GET    /api/v1/orgs/:org_id/events/:eid/fees            # Get fee schedule
+PUT    /api/v1/orgs/:org_id/events/:eid/fees            # Create/update fee schedule (admin)
+
+# Registrations
+POST   /api/v1/orgs/:org_id/events/:eid/register       # Register player (guardian or self)
+GET    /api/v1/orgs/:org_id/registrations               # List registrations (admin: all, user: own)
+GET    /api/v1/registrations/:id                         # Get registration details
+PUT    /api/v1/registrations/:id/cancel                  # Cancel registration (guardian/admin)
+PUT    /api/v1/admin/registrations/:id/promote           # Promote from tryout to season (admin)
+PUT    /api/v1/admin/registrations/:id/confirm           # Manually confirm registration (admin)
+PUT    /api/v1/admin/registrations/:id/waitlist-promote  # Promote from waitlist (admin)
+
+# Invoices
+GET    /api/v1/invoices                                  # List my invoices (payer)
+GET    /api/v1/orgs/:org_id/invoices                    # List org invoices (admin)
+GET    /api/v1/invoices/:id                              # Get invoice details + line items
+GET    /api/v1/invoices/:id/pdf                          # Download invoice PDF
+PUT    /api/v1/admin/invoices/:id/void                   # Void invoice (admin)
+
+# Payments
+POST   /api/v1/invoices/:id/pay                          # Initiate payment (creates PaymentIntent)
+POST   /api/v1/payments/webhook                          # Processor webhook (Stripe, etc.)
+GET    /api/v1/invoices/:id/payments                     # List payments for invoice
+POST   /api/v1/admin/payments/:id/refund                 # Issue refund (admin)
+
+# Financial Reports (admin)
+GET    /api/v1/orgs/:org_id/finance/summary              # Revenue summary (by event, period)
+GET    /api/v1/orgs/:org_id/finance/outstanding          # Outstanding balances
+```
+
+### 23.12 Capacity & Waitlist Management
+
+- `events.capacity`: NULL = unlimited, integer = max spots
+- Registration check: `COUNT(registrations WHERE event_id = :eid AND status IN ('pending','confirmed')) < capacity`
+- If full and `waitlist_enabled = true`: registration created with `status = 'waitlisted'` and `waitlist_position` auto-assigned
+- When a confirmed player cancels: system auto-promotes the next waitlisted player (lowest `waitlist_position`)
+- Promoted player receives notification and has a configurable window (default: 48 hours) to complete payment before the spot is offered to the next person
+
+### 23.13 Role-Based Access Matrix
+
+| Action | Admin | Coach | Guardian | Player (18+) |
+|---|---|---|---|---|
+| Create/edit events | ✓ | ✗ | ✗ | ✗ |
+| Configure fees/discounts | ✓ | ✗ | ✗ | ✗ |
+| View all registrations | ✓ | ✓ (read-only) | ✗ | ✗ |
+| Register a player | ✗ | ✗ | ✓ (own players) | ✓ (self) |
+| Cancel registration | ✓ (any) | ✗ | ✓ (own) | ✓ (own) |
+| Make payment | ✗ | ✗ | ✓ | ✓ |
+| View invoices | ✓ (all org) | ✗ | ✓ (own) | ✓ (own) |
+| Issue refund | ✓ | ✗ | ✗ | ✗ |
+| Promote from tryout | ✓ | ✗ | ✗ | ✗ |
+| Manage waitlist | ✓ | ✗ | ✗ | ✗ |
+| View financial reports | ✓ | ✗ | ✗ | ✗ |
+| Download invoice/receipt | ✓ | ✗ | ✓ (own) | ✓ (own) |
+
+### 23.14 Frontend Pages
+
+| Route | Component | Description |
+|---|---|---|
+| `/events` | `EventList` | Browse open events (seasons, camps, clinics, etc.) |
+| `/events/:slug` | `EventDetail` | Event info, fee breakdown, register button |
+| `/events/:slug/register` | `RegistrationForm` | Player selection, payment method, review & pay |
+| `/events/:slug/register/confirm` | `RegistrationConfirm` | Success page with receipt download |
+| `/my/registrations` | `MyRegistrations` | Guardian/player view of all registrations + payment status |
+| `/my/invoices` | `MyInvoices` | Invoice list with download links |
+| `/my/invoices/:id` | `InvoiceDetail` | Itemized invoice view + pay button |
+| `/admin/events` | `AdminEventList` | Event management (create, edit, open/close, capacity) |
+| `/admin/events/:id` | `AdminEventDetail` | Edit event + fee schedule configuration |
+| `/admin/events/:id/registrations` | `AdminRegistrations` | All registrations for event, promote/cancel/waitlist actions |
+| `/admin/finance` | `AdminFinanceDashboard` | Revenue summary, outstanding balances, refund history |
+| `/admin/finance/invoices` | `AdminInvoiceList` | All org invoices, filter by status |
+
+### 23.15 PR Breakdown (Registration + Fees)
+
+| PR # | Title | Repo | Est. Size | Description |
+|---|---|---|---|---|
+| C15 | Registration schema — events, registrations, invoices, payments | zice-core | Medium | Tables, RLS policies, indexes for all 6 new tables |
+| C16 | Payment processor abstraction + Stripe implementation | zice-core | Medium | `PaymentProcessor` interface, `StripeProcessor`, webhook handler |
+| C17 | Registration API endpoints + fee calculation engine | zice-core | Medium | Event CRUD, register, cancel, promote, waitlist, invoice generation |
+| C18 | Invoice + payment API endpoints | zice-core | Medium | Pay, refund, PDF generation, financial reports |
+| F12 | Event browsing + registration flow UI | zice-frontend | Medium | Event list, detail, registration form, payment integration |
+| F13 | Invoice + payment management UI | zice-frontend | Medium | My registrations, invoices, payment history, receipt download |
+| F14 | Admin event + finance management UI | zice-frontend | Medium | Admin event CRUD, fee config, registration management, finance dashboard |
+
+---
+
+## 24. Notifications System
+
+Zice delivers notifications across **four channels** — email, SMS, push (mobile), and in-app (web) — with granular user preferences per channel per event type. Coaches and admins can send custom bulk messages to teams or filtered groups.
+
+### 24.1 Notification Channels
+
+| Channel | Transport | Provider (Phase 1) | Fallback |
+|---|---|---|---|
+| **Email** | SMTP / API | Resend (or SendGrid) | Supabase Auth emails for auth events |
+| **SMS** | API | Twilio | None — SMS is opt-in only |
+| **Push** | FCM / APNs | Firebase Cloud Messaging | Falls back to in-app if no device token |
+| **In-App** | WebSocket / polling | Supabase Realtime (or custom) | Always available when user is logged in |
+
+### 24.2 Notification Event Types
+
+| Category | Event | Default Channels | Sender |
+|---|---|---|---|
+| **Registration** | Registration confirmed | Email, In-App | System |
+| | Registration cancelled | Email, In-App | System |
+| | Waitlist position update | Email, In-App | System |
+| | Waitlist promoted — action required | Email, SMS, Push, In-App | System |
+| **Payments** | Payment received / receipt | Email, In-App | System |
+| | Payment failed / retry needed | Email, SMS, Push, In-App | System |
+| | Installment due reminder (7 days, 1 day) | Email, Push, In-App | System |
+| | Installment overdue | Email, SMS, Push, In-App | System |
+| | Refund processed | Email, In-App | System |
+| **Schedule** | Game/practice created | Email, Push, In-App | System |
+| | Game/practice time or location changed | Email, SMS, Push, In-App | System |
+| | Game/practice cancelled | Email, SMS, Push, In-App | System |
+| | Game result posted | Push, In-App | System |
+| **Team** | Player added to roster | Email, In-App | System |
+| | Player removed from roster | Email, In-App | System |
+| | Roster finalized | Email, Push, In-App | System |
+| **Blog** | New post published | Push, In-App | System |
+| | Comment reply on your post/comment | Push, In-App | System |
+| **Admin/Coach Messages** | Custom announcement to team | Email, Push, In-App | Coach/Admin |
+| | Direct message to individual | Email, Push, In-App | Coach/Admin |
+| | Urgent alert (all channels forced) | Email, SMS, Push, In-App | Admin |
+| **Account Security** | Password changed | Email | System |
+| | New device login | Email, Push | System |
+| | Passkey registered/removed | Email | System |
+| **Compliance** | NGB registration expiring | Email, In-App | System |
+| | Missing required documents | Email, In-App | System |
+| | SafeSport certification due | Email, In-App | System |
+| **Invitations** | Invited to organization | Email | System |
+| | Guardian link request | Email, Push, In-App | System |
+
+### 24.3 Database Schema
+
+#### `public.notification_templates`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `event_type` | `text` | NOT NULL, UNIQUE | e.g., `registration.confirmed`, `schedule.game_changed` |
+| `subject_template` | `text` | NOT NULL | Handlebars template for email subject |
+| `body_email` | `text` | NOT NULL | HTML template for email body |
+| `body_sms` | `text` | NOT NULL | Plain text template for SMS (160 char target) |
+| `body_push` | `text` | NOT NULL | Short text for push notification |
+| `body_inapp` | `text` | NOT NULL | Markdown/text for in-app notification |
+| `default_channels` | `text[]` | NOT NULL | Default channels: `{email, sms, push, inapp}` |
+| `force_channels` | `text[]` | DEFAULT `'{}'` | Channels that CANNOT be disabled by user (e.g., security events) |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+| `updated_at` | `timestamptz` | DEFAULT `now()` | |
+
+#### `public.notification_preferences`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `user_id` | `uuid` | FK → `auth.users(id)`, NOT NULL | |
+| `event_type` | `text` | NOT NULL | Matches `notification_templates.event_type` |
+| `channel_email` | `boolean` | NOT NULL, DEFAULT `true` | |
+| `channel_sms` | `boolean` | NOT NULL, DEFAULT `false` | SMS is opt-in |
+| `channel_push` | `boolean` | NOT NULL, DEFAULT `true` | |
+| `channel_inapp` | `boolean` | NOT NULL, DEFAULT `true` | |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+| `updated_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **Unique constraint:** `(user_id, event_type)`. If no row exists for a user+event, the system uses `notification_templates.default_channels`.
+
+#### `public.notifications`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `org_id` | `uuid` | FK → `organizations(id)`, NOT NULL | Tenant scoping |
+| `user_id` | `uuid` | FK → `auth.users(id)`, NOT NULL | Recipient |
+| `event_type` | `text` | NOT NULL | e.g., `schedule.game_changed` |
+| `title` | `text` | NOT NULL | Rendered notification title |
+| `body` | `text` | NOT NULL | Rendered notification body |
+| `data` | `jsonb` | DEFAULT `'{}'` | Structured payload (e.g., `{game_id, old_time, new_time}`) |
+| `channels_sent` | `text[]` | NOT NULL | Which channels were actually sent |
+| `read_at` | `timestamptz` | NULLABLE | When user read the in-app notification |
+| `clicked_at` | `timestamptz` | NULLABLE | When user clicked through |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **RLS:** Users can only read/update their own notifications. Admins can read all notifications for their org.
+
+#### `public.notification_deliveries`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `notification_id` | `uuid` | FK → `notifications(id)`, NOT NULL | |
+| `channel` | `text` | NOT NULL | `email`, `sms`, `push`, `inapp` |
+| `status` | `text` | NOT NULL, DEFAULT `'pending'` | `pending`, `sent`, `delivered`, `failed`, `bounced` |
+| `provider_id` | `text` | NULLABLE | External ID from provider (Resend message ID, Twilio SID, etc.) |
+| `error` | `text` | NULLABLE | Error message if failed |
+| `sent_at` | `timestamptz` | NULLABLE | |
+| `delivered_at` | `timestamptz` | NULLABLE | |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+
+#### `public.device_tokens`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `user_id` | `uuid` | FK → `auth.users(id)`, NOT NULL | |
+| `platform` | `text` | NOT NULL | `ios`, `android`, `web` |
+| `token` | `text` | NOT NULL | FCM/APNs device token |
+| `is_active` | `boolean` | DEFAULT `true` | Deactivated on uninstall or token refresh |
+| `last_used_at` | `timestamptz` | NULLABLE | |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+
+> **Unique constraint:** `(user_id, platform, token)`
+
+### 24.4 Notification Dispatch Architecture
+
+```mermaid
+flowchart TD
+    A[Event Occurs] --> B[NotificationService.Send]
+    B --> C{Resolve Recipients}
+    C --> D[Query notification_preferences]
+    D --> E{For each recipient}
+    E --> F{For each enabled channel}
+    F -->|Email| G[EmailProvider.Send]
+    F -->|SMS| H[SMSProvider.Send]
+    F -->|Push| I[PushProvider.Send]
+    F -->|In-App| J[Insert into notifications table]
+    G --> K[notification_deliveries]
+    H --> K
+    I --> K
+    J --> K
+    K --> L[Supabase Realtime → WebSocket]
+```
+
+### 24.5 Recipient Resolution
+
+Notifications are sent to the right people based on the event context:
+
+| Event Context | Recipients |
+|---|---|
+| Player-specific (roster change, compliance) | All active guardians of the player (`player_guardians WHERE is_active = true`) + player themselves if age 13+ |
+| Team-wide (schedule change, blog post) | All members of the org with relevant roles |
+| Org-wide (admin announcement) | All org members |
+| Financial (payment, invoice) | Guardian(s) with `financial` permission for the player + player if 18+ |
+| Security (password change, login) | The specific user only |
+| Custom message (coach sends) | Target audience selected by sender (whole team, guardians only, specific group) |
+
+### 24.6 Bulk Messaging (Coach/Admin)
+
+Coaches and admins can send custom messages to teams or filtered groups:
+
+```
+POST /api/v1/orgs/:org_id/messages
+{
+  "audience": "team",              // "team" | "guardians" | "coaches" | "all" | "custom"
+  "team_id": "uuid",               // optional — filter by team
+  "user_ids": ["uuid", ...],       // optional — for "custom" audience
+  "subject": "Practice cancelled tonight",
+  "body": "Due to weather, practice is cancelled...",
+  "channels": ["email", "push"],   // override default channels
+  "urgent": false                   // true = force all channels including SMS
+}
+```
+
+**Permissions:**
+- **Admins**: Can message anyone in the org, including urgent (all channels)
+- **Coaches**: Can message their own team members only, cannot send urgent
+- **Parents/Players**: Cannot send bulk messages (use direct messaging in future iteration)
+
+### 24.7 User Notification Preferences UI
+
+Accessible at `/settings/notifications`:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Notification Preferences                                │
+├──────────────────────────────────────────────────────────┤
+│                          Email  SMS  Push  In-App        │
+│  ─── Registration ───                                    │
+│  Registration confirmed    ✓     ☐    ✓     ✓           │
+│  Waitlist updates          ✓     ☐    ✓     ✓           │
+│  ─── Payments ───                                        │
+│  Payment received          ✓     ☐    ☐     ✓           │
+│  Payment due reminder      ✓     ☐    ✓     ✓           │
+│  Payment overdue           ✓     ✓    ✓     ✓    🔒     │
+│  ─── Schedule ───                                        │
+│  Game/practice changes     ✓     ✓    ✓     ✓           │
+│  Game cancelled            ✓     ✓    ✓     ✓    🔒     │
+│  ─── Team ───                                            │
+│  Roster changes            ✓     ☐    ✓     ✓           │
+│  ─── Blog ───                                            │
+│  New post published        ☐     ☐    ✓     ✓           │
+│  Comment replies           ☐     ☐    ✓     ✓           │
+│  ─── Security ───                                        │
+│  Password/passkey changes  ✓     ☐    ☐     ☐    🔒     │
+│  New device login          ✓     ☐    ✓     ☐    🔒     │
+└──────────────────────────────────────────────────────────┘
+  🔒 = forced by system, cannot be disabled
+```
+
+### 24.8 In-App Notification Center
+
+- **Bell icon** in the top nav bar with unread count badge
+- **Notification drawer** slides in from right with grouped notifications
+- **Mark as read**: Individual or "mark all as read"
+- **Click-through**: Each notification links to the relevant page (e.g., game detail, invoice, blog post)
+- **Real-time updates**: Supabase Realtime subscription on `notifications` table filtered by `user_id`
+- **Retention**: Notifications older than 90 days are archived (not deleted)
+
+### 24.9 SMS Consent & Compliance
+
+- SMS is **opt-in only** — never enabled by default
+- Users must explicitly enable SMS per event type in notification preferences
+- First SMS to a user includes opt-out instructions: "Reply STOP to unsubscribe"
+- All SMS consent changes are audit-logged
+- TCPA compliant: Consent recorded with timestamp, IP, and user agent
+- Admin "urgent" messages override user SMS preferences but are audit-logged and rate-limited (max 1 per 24 hours per org)
+
+### 24.10 Rate Limiting & Deduplication
+
+| Rule | Limit |
+|---|---|
+| Per-user per-channel per-hour | 10 notifications |
+| Per-user SMS per-day | 5 messages |
+| Admin urgent broadcasts per-org per-day | 1 |
+| Deduplication window | 5 minutes (same event_type + user_id + data hash) |
+| Batch digest | If >3 notifications of same type within 15 min, batch into digest email |
+
+### 24.11 Notification Provider Abstraction
+
+```go
+// NotificationProvider defines the interface for each channel
+type NotificationProvider interface {
+    Send(ctx context.Context, recipient Recipient, message Message) (*DeliveryResult, error)
+    BatchSend(ctx context.Context, recipients []Recipient, message Message) ([]DeliveryResult, error)
+    CheckStatus(ctx context.Context, providerID string) (*DeliveryStatus, error)
+}
+
+// Implementations
+type ResendEmailProvider struct { ... }      // Email via Resend API
+type TwilioSMSProvider struct { ... }        // SMS via Twilio
+type FCMPushProvider struct { ... }          // Push via Firebase Cloud Messaging
+type SupabaseRealtimeProvider struct { ... } // In-app via Supabase Realtime
+```
+
+Provider is swappable per channel (e.g., switch from Resend to SendGrid for email without changing dispatch logic).
+
+### 24.12 API Endpoints
+
+```
+# User notifications
+GET    /api/v1/notifications                           # List my notifications (paginated, filterable)
+GET    /api/v1/notifications/unread-count               # Unread count for badge
+PUT    /api/v1/notifications/:id/read                   # Mark as read
+PUT    /api/v1/notifications/read-all                   # Mark all as read
+
+# Notification preferences
+GET    /api/v1/notifications/preferences                # Get my preferences
+PUT    /api/v1/notifications/preferences                # Update preferences (batch)
+PUT    /api/v1/notifications/preferences/:event_type    # Update single event type
+
+# Device tokens (push notifications)
+POST   /api/v1/devices                                  # Register device token
+DELETE /api/v1/devices/:id                              # Unregister device token
+
+# Admin: bulk messaging
+POST   /api/v1/orgs/:org_id/messages                   # Send custom message (admin/coach)
+GET    /api/v1/orgs/:org_id/messages                    # List sent messages (admin)
+
+# Admin: notification analytics
+GET    /api/v1/orgs/:org_id/notifications/stats          # Delivery stats (sent, delivered, failed, open rate)
+```
+
+### 24.13 Frontend Pages
+
+| Route | Component | Description |
+|---|---|---|
+| `/settings/notifications` | `NotificationPreferences` | Per-event-type, per-channel toggle grid |
+| (global) | `NotificationBell` | Top nav bell icon with unread badge |
+| (global) | `NotificationDrawer` | Slide-in panel with notification list |
+| `/admin/messages` | `AdminMessageComposer` | Compose + send custom messages to team/groups |
+| `/admin/messages/history` | `AdminMessageHistory` | Sent message log with delivery stats |
+
+### 24.14 PR Breakdown (Notifications)
+
+| PR # | Title | Repo | Est. Size | Description |
+|---|---|---|---|---|
+| C22 | Notification schema — templates, preferences, deliveries, device tokens | zice-core | Medium | Tables, RLS policies, seed templates for all event types |
+| C23 | Notification dispatch engine + provider abstraction | zice-core | Medium | `NotificationService`, provider interfaces, recipient resolution, rate limiting, deduplication |
+| C24 | Email + SMS providers (Resend + Twilio) | zice-core | Medium | `ResendEmailProvider`, `TwilioSMSProvider`, template rendering, SMS consent tracking |
+| C25 | Push notifications + in-app (FCM + Supabase Realtime) | zice-core | Medium | `FCMPushProvider`, `SupabaseRealtimeProvider`, device token management |
+| C26 | Bulk messaging API + notification analytics | zice-core | Small | Admin/coach message endpoints, delivery stats, audience resolution |
+| F17 | Notification preferences UI + bell/drawer components | zice-frontend | Medium | Preferences grid, `NotificationBell`, `NotificationDrawer`, Supabase Realtime subscription |
+| F18 | Admin message composer + history UI | zice-frontend | Medium | Compose form with audience picker, sent message log, delivery stats dashboard |
+
+---
+
+## 25. NGB Registration & Verification
+
+Zice generalizes the USA Hockey registration concept into a **multi-sport NGB (National Governing Body) registration model**. This makes the platform sport-agnostic — any sport with a governing body that issues member IDs can be supported.
+
+### 25.1 Supported NGBs (Current & Planned)
+
+| NGB | Sport | ID Format | Validation Fields | API Available? |
+|---|---|---|---|---|
+| **USA Hockey** | Ice Hockey | 14-char alphanumeric | Number + first name + last name + DOB + season | Private partnership API only |
+| **USA Lacrosse** | Lacrosse | 14-char alphanumeric | Number + last name + DOB + zip | Private partnership API only |
+| **USA Swimming** | Swimming | 14-char algorithmic (mmddyyFIRMILAST) | Number + name + DOB | No API — managed via hub.usaswimming.org |
+| **US Club Soccer** | Soccer | FIFA Player ID (variable length) | Document-based (birth cert upload) | No API — managed via GotSport |
+| **AAU** | Multi-sport | AAU Membership Number | Number + age/grade verification | No API |
+| **USA Gymnastics** | Gymnastics | USAG Member ID | Number + club affiliation | No API |
+| **USA Football** | Football | Membership number | Number + age/weight | No API |
+| **Hockey Canada** | Ice Hockey (CA) | HC Number | Number + name + DOB | Private partnership API |
+
+### 25.2 Database Schema
+
+#### `public.ngb_types` (reference table)
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `text` | PK | e.g., `usa_hockey`, `usa_lacrosse`, `us_club_soccer` |
+| `name` | `text` | NOT NULL | Display name: "USA Hockey" |
+| `sport` | `text` | NOT NULL | e.g., `ice_hockey`, `lacrosse`, `soccer` |
+| `id_format_regex` | `text` | NOT NULL | Regex for format validation: `^[A-Za-z0-9]{14}$` |
+| `id_format_description` | `text` | NOT NULL | Human-readable: "14-character alphanumeric" |
+| `verification_fields` | `text[]` | NOT NULL | Fields needed for API verification: `{first_name, last_name, dob, season}` |
+| `verification_method` | `text` | NOT NULL | `api`, `document`, `manual` |
+| `api_available` | `boolean` | DEFAULT `false` | Whether Zice has API integration access |
+| `website_url` | `text` | NULLABLE | Registration website URL |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+
+#### `public.ngb_registrations` (replaces `usa_hockey_id` column)
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK | |
+| `player_id` | `uuid` | FK → `players(id)`, NOT NULL | |
+| `ngb_type` | `text` | FK → `ngb_types(id)`, NOT NULL | e.g., `usa_hockey` |
+| `registration_number` | `text` | NOT NULL | The NGB-issued ID |
+| `season` | `text` | NULLABLE | e.g., `2025-26` |
+| `status` | `text` | NOT NULL, DEFAULT `'unverified'` | `unverified`, `verified`, `expired`, `invalid` |
+| `verified_at` | `timestamptz` | NULLABLE | When verification succeeded |
+| `verified_by` | `uuid` | FK → `auth.users(id)`, NULLABLE | Admin who manually verified, or NULL for API |
+| `verification_method` | `text` | NOT NULL, DEFAULT `'format_only'` | `format_only`, `manual`, `api`, `document` |
+| `verification_data` | `jsonb` | DEFAULT `'{}'` | API response or document metadata |
+| `expires_at` | `timestamptz` | NULLABLE | When the registration expires (season end) |
+| `created_at` | `timestamptz` | DEFAULT `now()` | |
+| `updated_at` | `timestamptz` | DEFAULT `now()` | |
+| `deleted_at` | `timestamptz` | NULLABLE | Soft delete |
+
+> **Unique constraint:** `(player_id, ngb_type, season)` — one registration per NGB per season per player.  
+> **CHECK constraint:** `registration_number` is validated against `ngb_types.id_format_regex` at the application layer (regexes vary per NGB type).  
+> **Migration note:** The existing `players.usa_hockey_id` column will be migrated to `ngb_registrations` rows with `ngb_type = 'usa_hockey'`. The column is kept as a read-only computed alias during transition.
+
+### 25.3 Verification Flow
+
+```mermaid
+flowchart TD
+    A[Player Registration Input] --> B{NGB Type Selected?}
+    B -->|Yes| C[Format Validation<br/>regex check]
+    C -->|Invalid Format| D[Error: Invalid ID format]
+    C -->|Valid Format| E{API Integration Available?}
+    E -->|Yes| F[API Verification<br/>Send: number + name + DOB + season]
+    E -->|No| G[Store as format_only<br/>Admin can manually verify]
+    F -->|Valid| H[Status: verified<br/>Store API response]
+    F -->|Invalid| I[Status: invalid<br/>Show error to user]
+    G --> J[Status: unverified<br/>Flag for admin review]
+    H --> K[Done]
+    I --> L[User corrects and retries]
+    J --> M[Admin verifies manually<br/>or via USAH Registry portal]
+    M --> N[Status: verified<br/>verified_by = admin_id]
+```
+
+### 25.4 NGB Verification Provider Interface
+
+```go
+// NGBVerificationProvider defines the interface for NGB API integrations
+type NGBVerificationProvider interface {
+    // Verify checks a registration number against the NGB's database
+    Verify(ctx context.Context, req VerificationRequest) (*VerificationResult, error)
+    // SupportsSeasonCheck returns true if the NGB API validates season eligibility
+    SupportsSeasonCheck() bool
+}
+
+type VerificationRequest struct {
+    RegistrationNumber string
+    FirstName          string
+    LastName           string
+    DOB                time.Time
+    Season             string // e.g., "2025-26"
+}
+
+type VerificationResult struct {
+    Valid           bool
+    MembershipType  string // e.g., "Youth - Competitive"
+    ExpiresAt       *time.Time
+    SeasonEligible  bool
+    ErrorMessage    string
+    RawResponse     json.RawMessage // Store for audit
+}
+
+// Future implementations (requires partnership agreements)
+type USAHockeyProvider struct { apiKey string; baseURL string }
+type USALacrosseProvider struct { apiKey string; baseURL string }
+type HockeyCanadaProvider struct { apiKey string; baseURL string }
+```
+
+### 25.5 Org-Level NGB Configuration
+
+Organizations configure which NGB(s) their sport requires:
+
+```
+POST /api/v1/admin/orgs/:org_id/ngb-requirements
+{
+  "ngb_type": "usa_hockey",
+  "required": true,           // Players must have a valid registration
+  "enforce_verification": false,  // true = block roster if unverified
+  "season": "2025-26"
+}
+```
+
+- **Required + not enforced** (default): Admin sees warnings for unverified players but can proceed
+- **Required + enforced**: Players cannot be added to official rosters without a verified NGB registration
+- **Not required**: NGB field is optional during registration
+
+### 25.6 API Endpoints
+
+```
+# NGB types (reference data)
+GET    /api/v1/ngb-types                                # List all supported NGBs
+
+# Player NGB registrations
+GET    /api/v1/players/:id/ngb-registrations             # List player's NGB registrations
+POST   /api/v1/players/:id/ngb-registrations             # Add NGB registration
+PUT    /api/v1/players/:id/ngb-registrations/:rid         # Update registration number
+DELETE /api/v1/players/:id/ngb-registrations/:rid         # Soft-delete registration
+
+# Verification
+POST   /api/v1/players/:id/ngb-registrations/:rid/verify  # Trigger verification (API or manual)
+
+# Admin: org NGB requirements
+GET    /api/v1/admin/orgs/:org_id/ngb-requirements       # Get org NGB config
+PUT    /api/v1/admin/orgs/:org_id/ngb-requirements       # Set org NGB config
+
+# Admin: compliance dashboard
+GET    /api/v1/admin/orgs/:org_id/ngb-compliance         # List players with verification status
+```
+
+### 25.7 Frontend Pages
+
+| Route | Component | Description |
+|---|---|---|
+| `/admin/compliance` | `NGBComplianceDashboard` | Table of all players with NGB verification status, filters (verified/unverified/expired), bulk verify button |
+| `/admin/compliance/settings` | `NGBRequirementSettings` | Configure which NGBs are required, enforcement mode, season |
+| `/players/:id` (section) | `NGBRegistrationCard` | Player profile section showing NGB IDs with status badges (verified/unverified/expired) |
+| `/settings/ngb` | `MyNGBRegistrations` | Player/guardian view of their NGB registrations |
+
+### 25.8 Future: NGB API Partnership Integration
+
+When Zice secures API partnership access with an NGB:
+
+1. **Contact**: USA Hockey — Chris Smith (chriss@usahockey.org, ext 139). USA Lacrosse — through their "Preferred Platform Partners" program.
+2. **Implementation**: Add a new `NGBVerificationProvider` implementation (e.g., `USAHockeyProvider`)
+3. **Configuration**: Set `api_available = true` in `ngb_types`, deploy provider with API credentials
+4. **User experience**: Registration form auto-validates in real-time; "Verified ✓" badge appears instantly
+5. **Caching**: Verification results cached for the season duration — no re-verification needed until season changes
+
+This is planned for Milestone 3+ under the `zice-compliance` service extraction.
+
+### 25.9 Migration from `usa_hockey_id`
+
+```sql
+-- Migrate existing usa_hockey_id data to ngb_registrations
+INSERT INTO ngb_registrations (player_id, ngb_type, registration_number, status, verification_method)
+SELECT id, 'usa_hockey', usa_hockey_id, 'unverified', 'format_only'
+FROM players
+WHERE usa_hockey_id IS NOT NULL AND deleted_at IS NULL;
+
+-- Keep usa_hockey_id as read-only alias (computed view or trigger)
+-- Remove in a future migration once all consumers use ngb_registrations
+```
+
+### 25.10 PR Breakdown (NGB Registration)
+
+| PR # | Title | Repo | Est. Size | Description |
+|---|---|---|---|---|
+| C27 | NGB registration schema — ngb_types, ngb_registrations, migration | zice-core | Medium | Tables, RLS policies, seed NGB types, migrate usa_hockey_id data |
+| C28 | NGB verification engine + provider interface | zice-core | Medium | `NGBVerificationProvider` interface, format validation, manual verification endpoint |
+| F19 | NGB compliance dashboard + player registration UI | zice-frontend | Medium | Compliance dashboard, requirement settings, player profile NGB card |
+
+---
+
+## 26. PR Breakdown Strategy
 
 Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 
@@ -2133,6 +3514,20 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | C12 | Password validation + passkey support | M2 | Small | `ValidatePassword` policy enforcement in auth handler, passkey JWT acceptance |
 | C13 | Admin CRUD API — soft-delete + restore endpoints | M2 | Medium | DELETE (soft), PUT restore, `?include_deleted` query param across all entity handlers |
 | C14 | Team Blog — schema, RLS, API endpoints | M3 | Medium | `blog_posts`, `blog_comments`, `blog_media` tables, RLS policies, 16 REST endpoints |
+| C15 | Registration schema — events, registrations, invoices, payments | M3 | Medium | Tables, RLS policies, indexes for all 6 new tables |
+| C16 | Payment processor abstraction + Stripe implementation | M3 | Medium | `PaymentProcessor` interface, `StripeProcessor`, webhook handler |
+| C17 | Registration API endpoints + fee calculation engine | M3 | Medium | Event CRUD, register, cancel, promote, waitlist, invoice generation |
+| C18 | Invoice + payment API endpoints | M3 | Medium | Pay, refund, PDF generation, financial reports |
+| C19 | Platform admin schema — table, feature flags, RLS | M3 | Medium | `platform_admins`, `org_feature_flags` tables, helper functions, RLS policies |
+| C20 | Platform admin API + feature gating middleware | M3 | Medium | Platform admin CRUD, org provisioning, feature flag management, `RequireFeature` middleware |
+| C21 | Stripe Connect + impersonation endpoints | M3 | Medium | Stripe Connect onboarding, status check, impersonation with audit logging |
+| C22 | Notification schema — templates, preferences, deliveries, device tokens | M3 | Medium | Tables, RLS policies, seed templates for all event types |
+| C23 | Notification dispatch engine + provider abstraction | M3 | Medium | `NotificationService`, provider interfaces, recipient resolution, rate limiting |
+| C24 | Email + SMS providers (Resend + Twilio) | M3 | Medium | `ResendEmailProvider`, `TwilioSMSProvider`, template rendering, consent tracking |
+| C25 | Push notifications + in-app (FCM + Supabase Realtime) | M3 | Medium | `FCMPushProvider`, `SupabaseRealtimeProvider`, device token management |
+| C26 | Bulk messaging API + notification analytics | M3 | Small | Admin/coach message endpoints, delivery stats, audience resolution |
+| C27 | NGB registration schema — ngb_types, ngb_registrations, migration | M3 | Medium | Tables, RLS, seed NGB types, migrate usa_hockey_id |
+| C28 | NGB verification engine + provider interface | M3 | Medium | `NGBVerificationProvider` interface, format validation, manual verification |
 
 ### `zice-frontend` PRs
 
@@ -2149,6 +3544,14 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | F9 | Admin Dashboard — audit log viewer | M2 | Medium | Timeline view, diff view, filters, search, CSV export |
 | F10 | Team Blog — feed + post viewer | M3 | Medium | Blog feed page, single post view with comments, category/tag filters, search |
 | F11 | Team Blog — editor + admin management | M3 | Medium | Rich text editor, draft/publish workflow, media upload, admin blog list with bulk actions |
+| F12 | Event browsing + registration flow UI | M3 | Medium | Event list, detail, registration form, payment integration |
+| F13 | Invoice + payment management UI | M3 | Medium | My registrations, invoices, payment history, receipt download |
+| F14 | Admin event + finance management UI | M3 | Medium | Admin event CRUD, fee config, registration management, finance dashboard |
+| F15 | Platform admin dashboard + org management UI | M3 | Medium | Platform dashboard, org list/detail, feature flag toggles |
+| F16 | Platform Stripe setup + impersonation UI | M3 | Medium | Stripe onboarding flow, impersonation banner + launcher |
+| F17 | Notification preferences UI + bell/drawer components | M3 | Medium | Preferences grid, NotificationBell, NotificationDrawer, Realtime subscription |
+| F18 | Admin message composer + history UI | M3 | Medium | Compose form with audience picker, sent message log, delivery stats |
+| F19 | NGB compliance dashboard + player registration UI | M3 | Medium | Compliance dashboard, requirement settings, player profile NGB card |
 
 ### Cross-Repo PRs
 
@@ -2157,7 +3560,7 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | X1 | CI/CD: PR + deploy Slack notifications | M2 | Small | GitHub Actions workflows for `#dice-platform-prs` and `#dice-platform-deployment` notifications |
 | X2 | Production smoke test scripts | M2 | Small | `scripts/smoke-test.sh` + Makefile `smoke` target for both repos |
 
-> `C1-C13` in **`zice-core`**, `F1-F9` in **`zice-frontend`**, `X1-X2` in **both repos**. PRs can be worked in parallel across repos.
+> `C1-C28` in **`zice-core`**, `F1-F19` in **`zice-frontend`**, `X1-X2` in **both repos**. PRs can be worked in parallel across repos.
 
 ---
 
@@ -2184,7 +3587,19 @@ Following the constraint of Small (26-200 LOC) to Medium (201-500 LOC) PRs:
 | 17 | Passkey authentication | **Supabase native passkeys** — WebAuthn registration + login via `supabase-js` experimental passkey API |
 | 18 | User audit log | **Comprehensive audit** — all mutations logged with old/new data, password changes redacted, append-only `audit_log` table |
 | 19 | Team blog | **Org-scoped blog** — coaches + admins publish posts, all members can read and comment. Markdown body, draft/publish workflow, pinned posts, threaded comments, media attachments |
+| 20 | Platform admin model | **Two-tier admin** — Platform admins (Zice staff) control org provisioning, feature flags, Stripe Connect, impersonation. Org admins are super-users within their tenant but gated by platform-level feature flags |
+| 21 | Feature gating | **Per-org feature flags** — `org_feature_flags` table controlled by platform admins. Paid features (payments, surcharges, custom domains) default off. Core features (blog, import) default on. Enforced at API middleware + frontend context |
+| 22 | Registration + fees | **Event-based registration** — fully configurable events (seasons, tryouts, camps, clinics, etc.) with fee schedules, installment plans, sibling discounts, credit card surcharges (configurable per event), capacity limits + waitlists |
+| 23 | Payment processor | **Abstraction layer** — `PaymentProcessor` interface, start with Stripe, swappable to Square/PayPal. Stripe Connect for per-org merchant accounts |
+| 24 | Refund policy | **Configurable per event** — default refundable, tryouts default non-refundable. CC surcharges not refunded. Deadline-based refund cutoff |
+| 25 | Invoicing | **Auto-generated invoices** — unique invoice numbers per org, itemized line items, PDF download for tax records |
+| 26 | Notifications | **Four-channel notification system** — Email (Resend), SMS (Twilio), Push (FCM), In-App (Supabase Realtime). Granular per-event-type per-channel user preferences. Coach/admin bulk messaging with audience targeting. Rate limiting, deduplication, SMS consent/TCPA compliance. Provider abstraction layer per channel |
+| 27 | NGB registration model | **Multi-sport NGB abstraction** — `ngb_registrations` table replaces `usa_hockey_id`. Supports any sport's governing body (USA Hockey, USA Lacrosse, USA Swimming, US Club Soccer, AAU, etc.). Format-only validation now, API verification when partnerships secured. Org-level NGB requirement config with optional enforcement. Phased: format → manual → API verification |
 
 ## Open Questions
 
 1. **GameSheet CSV format:** The design assumes `Player Name, Jersey Number` columns. If you have a sample GameSheet export, I can refine the auto-detect logic.
+2. **NGB API partnerships:** Should we proactively contact USA Hockey (Chris Smith — chriss@usahockey.org, ext 139) and USA Lacrosse about API integration access, or wait until after launch?
+3. **Email provider preference:** Resend vs SendGrid vs Amazon SES for transactional email. Resend is recommended for developer experience, but SES is cheapest at scale.
+4. **SMS provider preference:** Twilio is recommended but Vonage/MessageBird are alternatives. SMS costs ~$0.0079/message domestically.
+5. **Push notification platform:** Firebase Cloud Messaging is recommended (free, cross-platform). Requires a Firebase project and service account key.
