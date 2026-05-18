@@ -14,8 +14,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone service repos
-        run: make clone
+      - name: Checkout zice-core
+        uses: actions/checkout@v4
+        with:
+          repository: goruncoder/zice-core
+          ref: merge-all
+          path: repos/zice-core
+          token: ${{ secrets.SERVICE_REPO_TOKEN || github.token }}
+
+      - name: Checkout zice-frontend
+        uses: actions/checkout@v4
+        with:
+          repository: goruncoder/zice-frontend
+          ref: merge-all
+          path: repos/zice-frontend
+          token: ${{ secrets.SERVICE_REPO_TOKEN || github.token }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
