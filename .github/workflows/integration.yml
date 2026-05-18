@@ -10,6 +10,9 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      CORE_REF: ${{ github.event_name == 'pull_request' && 'cursor/local-dev-auth-20260518' || 'merge-all' }}
+      FRONTEND_REF: ${{ github.event_name == 'pull_request' && 'cursor/local-admin-workspace-20260518' || 'merge-all' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: goruncoder/zice-core
-          ref: merge-all
+          ref: ${{ env.CORE_REF }}
           path: repos/zice-core
           token: ${{ secrets.SERVICE_REPO_TOKEN || github.token }}
 
@@ -26,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: goruncoder/zice-frontend
-          ref: merge-all
+          ref: ${{ env.FRONTEND_REF }}
           path: repos/zice-frontend
           token: ${{ secrets.SERVICE_REPO_TOKEN || github.token }}
 
