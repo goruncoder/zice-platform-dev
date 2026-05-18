@@ -129,7 +129,7 @@ checkout-pr: ## Checkout a PR branch for local testing (usage: make checkout-pr 
 		exit 1; \
 	fi
 	@echo "Fetching PR #$(PR) for $(REPO)..."
-	@cd $(REPOS_DIR)/$(REPO) && git fetch origin pull/$(PR)/head:pr-$(PR) && git checkout pr-$(PR)
+	@cd $(REPOS_DIR)/$(REPO) && git fetch origin pull/$(PR)/head && git checkout -B pr-$(PR) FETCH_HEAD
 	@echo "Checked out PR #$(PR) on $(REPO). Run 'make install' to update dependencies."
 
 install: ## Install dependencies for all repos
