@@ -62,7 +62,7 @@ The following services will be available:
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:8080 |
 | API Health | http://localhost:8080/api/v1/health |
-| Supabase Studio | http://localhost:54323 |
+| Database | localhost:54322 (PostgreSQL) |
 
 ## Configuration
 

@@ -14,5 +14,8 @@ Thumbs.db
 *.swp
 *.swo
 
+# Runtime logs and PID files
+.logs/
+
 # Docker volumes
 docker-data/

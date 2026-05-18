@@ -5,6 +5,9 @@
 REPOS_DIR := repos
 CORE_DIR := $(REPOS_DIR)/zice-core
 FRONTEND_DIR := $(REPOS_DIR)/zice-frontend
+LOG_DIR := .logs
+BACKEND_PID := $(LOG_DIR)/backend.pid
+FRONTEND_PID := $(LOG_DIR)/frontend.pid
 
 # Load .env if it exists
 -include .env
@@ -15,21 +18,21 @@ export
 # =============================================================================
 
 dev: ## Start all services
+	@mkdir -p $(LOG_DIR)
 	@echo "Starting database..."
-	docker compose up -d
-	@echo "Waiting for database to be ready..."
-	@sleep 3
+	docker compose up -d --wait
 	@echo "Starting backend..."
-	cd $(CORE_DIR) && make dev &
+	@cd $(CORE_DIR) && make dev > ../../$(LOG_DIR)/backend.log 2>&1 & echo $$! > ../../$(BACKEND_PID)
 	@echo "Starting frontend..."
-	cd $(FRONTEND_DIR) && make dev &
+	@cd $(FRONTEND_DIR) && npm run dev > ../../$(LOG_DIR)/frontend.log 2>&1 & echo $$! > ../../$(FRONTEND_PID)
 	@echo ""
 	@echo "Services starting:"
 	@echo "  Frontend:  http://localhost:3000"
 	@echo "  Backend:   http://localhost:8080"
 	@echo "  Database:  localhost:54322"
 	@echo ""
-	@echo "Use 'make logs' to tail output, 'make stop' to shut down."
+	@echo "Use 'make logs-frontend' or 'make logs-backend' to tail output."
+	@echo "Use 'make stop' to shut down."
 
 dev-frontend: ## Start only the frontend
 	cd $(FRONTEND_DIR) && make dev
@@ -41,8 +44,8 @@ stop: ## Stop all running services
 	@echo "Stopping Docker services..."
 	docker compose down
 	@echo "Stopping background processes..."
-	-@pkill -f "zice-core" 2>/dev/null || true
-	-@pkill -f "next dev" 2>/dev/null || true
+	-@if [ -f $(BACKEND_PID) ]; then kill $$(cat $(BACKEND_PID)) 2>/dev/null; rm -f $(BACKEND_PID); fi
+	-@if [ -f $(FRONTEND_PID) ]; then kill $$(cat $(FRONTEND_PID)) 2>/dev/null; rm -f $(FRONTEND_PID); fi
 	@echo "All services stopped."
 
 restart: stop dev ## Restart all services
@@ -61,10 +64,10 @@ logs: ## Tail logs from all Docker services
 	docker compose logs -f
 
 logs-frontend: ## Tail frontend logs
-	cd $(FRONTEND_DIR) && npm run dev 2>&1
+	@if [ -f $(LOG_DIR)/frontend.log ]; then tail -f $(LOG_DIR)/frontend.log; else echo "No frontend log found. Start services with 'make dev' first."; fi
 
 logs-backend: ## Tail backend logs
-	cd $(CORE_DIR) && make dev 2>&1
+	@if [ -f $(LOG_DIR)/backend.log ]; then tail -f $(LOG_DIR)/backend.log; else echo "No backend log found. Start services with 'make dev' first."; fi
 
 # =============================================================================
 # Code Quality
@@ -122,7 +125,7 @@ clean: ## Remove build artifacts and dependencies
 
 db-migrate: ## Run pending database migrations
 	@echo "Applying migrations from zice-core..."
-	@for f in $(CORE_DIR)/supabase/migrations/*.sql; do \
+	@for f in $$(ls $(CORE_DIR)/supabase/migrations/*.sql 2>/dev/null | sort); do \
 		echo "Applying: $$f"; \
 		PGPASSWORD=postgres psql -h localhost -p 54322 -U postgres -d postgres -f "$$f"; \
 	done

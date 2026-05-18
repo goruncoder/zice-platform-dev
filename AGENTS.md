@@ -64,7 +64,7 @@ make dev
 | Repo | Language | Purpose | Port |
 |---|---|---|---|
 | [zice-core](https://github.com/goruncoder/zice-core) | Go 1.23 | REST API backend | 8080 |
-| [zice-frontend](https://github.com/goruncoder/zice-frontend) | TypeScript/Next.js 14 | Web frontend | 3000 |
+| [zice-frontend](https://github.com/goruncoder/zice-frontend) | TypeScript/Next.js 15 | Web frontend | 3000 |
 
 Each repo has its own `AGENTS.md` with detailed context. Refer to those for repo-specific guidance.
 
