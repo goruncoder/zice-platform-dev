@@ -1,6 +1,7 @@
 .PHONY: dev dev-frontend dev-backend stop restart status logs logs-frontend logs-backend \
        test test-frontend test-backend lint lint-frontend lint-backend check \
-       clone install clean smoke db-migrate db-reset
+       clone install clean smoke db-migrate db-reset \
+       update checkout-pr
 
 REPOS_DIR := repos
 CORE_DIR := $(REPOS_DIR)/zice-core
@@ -110,6 +111,26 @@ clone: ## Clone all service repos
 	else \
 		echo "zice-frontend already cloned"; \
 	fi
+
+update: clone ## Pull latest main for all service repos
+	@echo "Updating zice-core..."
+	@cd $(CORE_DIR) && git checkout main && git pull origin main
+	@echo "Updating zice-frontend..."
+	@cd $(FRONTEND_DIR) && git checkout main && git pull origin main
+	@echo "All repos updated to latest main."
+
+checkout-pr: ## Checkout a PR branch for local testing (usage: make checkout-pr REPO=zice-core PR=15)
+	@if [ -z "$(REPO)" ] || [ -z "$(PR)" ]; then \
+		echo "Usage: make checkout-pr REPO=<zice-core|zice-frontend> PR=<number>"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make checkout-pr REPO=zice-core PR=15"; \
+		echo "  make checkout-pr REPO=zice-frontend PR=8"; \
+		exit 1; \
+	fi
+	@echo "Fetching PR #$(PR) for $(REPO)..."
+	@cd $(REPOS_DIR)/$(REPO) && git fetch origin pull/$(PR)/head && git checkout -B pr-$(PR) FETCH_HEAD
+	@echo "Checked out PR #$(PR) on $(REPO). Run 'make install' to update dependencies."
 
 install: ## Install dependencies for all repos
 	cd $(FRONTEND_DIR) && npm install
