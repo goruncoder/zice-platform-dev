@@ -1,0 +1,21 @@
+# Environment
+.env
+
+# Service repos (cloned via `make clone`)
+repos/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Runtime logs and PID files
+.logs/
+
+# Docker volumes
+docker-data/
