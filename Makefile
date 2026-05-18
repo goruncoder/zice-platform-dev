@@ -1,4 +1,4 @@
-.PHONY: dev dev-frontend dev-backend stop restart status logs logs-frontend logs-backend \
+.PHONY: dev dev-frontend dev-backend stop teardown teardown-volumes restart status logs logs-frontend logs-backend \
        test test-frontend test-backend lint lint-frontend lint-backend check \
        clone install clean smoke db-migrate db-reset
 
@@ -47,6 +47,17 @@ stop: ## Stop all running services
 	-@if [ -f $(BACKEND_PID) ]; then kill $$(cat $(BACKEND_PID)) 2>/dev/null; rm -f $(BACKEND_PID); fi
 	-@if [ -f $(FRONTEND_PID) ]; then kill $$(cat $(FRONTEND_PID)) 2>/dev/null; rm -f $(FRONTEND_PID); fi
 	@echo "All services stopped."
+
+teardown: ## Stop all services and remove Docker images (VOLUMES=1 to wipe DB)
+	@echo "Stopping background processes..."
+	-@if [ -f $(BACKEND_PID) ]; then kill $$(cat $(BACKEND_PID)) 2>/dev/null; rm -f $(BACKEND_PID); fi
+	-@if [ -f $(FRONTEND_PID) ]; then kill $$(cat $(FRONTEND_PID)) 2>/dev/null; rm -f $(FRONTEND_PID); fi
+	@echo "Stopping Docker services and removing images$(if $(VOLUMES), and volumes,)..."
+	@docker compose down --rmi all $(if $(VOLUMES),-v,)
+	@echo "Teardown complete. Run 'make dev' to pull images and start again.$(if $(VOLUMES), Then run 'make db-migrate'.,)"
+
+teardown-volumes: ## Stop all services, remove images, and wipe DB volume
+	$(MAKE) teardown VOLUMES=1
 
 restart: stop dev ## Restart all services
 
