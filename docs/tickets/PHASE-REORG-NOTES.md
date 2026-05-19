@@ -22,7 +22,7 @@
 
 ## Linear Tickets to Create (when token available)
 
-### Phase 7 tickets (L1–L18):
+### Phase 7 Tickets (L1–L18)
 - L1: League Foundation Schema (zice-core)
 - L2: League RLS Policies (zice-core)
 - L3: League Multi-Tenant Middleware + Core API (zice-core)
@@ -42,12 +42,12 @@
 - L17: League Branding + Theme Customization (zice-core + zice-frontend)
 - L18: League Embeddable Widgets + Stats Pages (zice-frontend)
 
-### Phase 13 tickets (N1–N9):
+### Phase 13 Tickets (N1–N9)
 - N1–N3: iOS App Store Release
 - N4–N6: Android Play Store Release
 - N7–N9: Cross-Platform Polish
 
-### Existing tickets to update:
+### Existing Tickets to Update
 - Phase 6E tickets (C54–C56, F39–F40): Mark as superseded by Phase 7
 - Any references to "Phase 7: Native Mobile Apps" in existing tickets: Update to Phase 13
 
