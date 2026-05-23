@@ -18,7 +18,6 @@ TEST_USERS="${ROOT_DIR}/scripts/seed/test-users.json"
 PASSWORD="${TEST_PASSWORD:-password123}"
 
 IFS='|' read -r ORG_ID ORG_SLUG TEAM SEASON < <(python3 -c "import json; d=json.load(open('$TEST_USERS')); print(f\"{d['organization']['id']}|{d['organization']['slug']}|{d['team']['designation']}|{d['team']['season']}\")")
-TENANT_HEADER="x-org-slug: ${ORG_SLUG}"
 
 PASS=0
 FAIL=0
@@ -49,18 +48,22 @@ extract_token() {
 
 api() {
   local method="$1" path="$2" token="$3"
-  local extra_header="${4:-}"
+  local with_tenant="${4:-}"
   local curl_args=(-s -o /tmp/zice_role_api.json -w '%{http_code}' -X "$method")
   curl_args+=(-H "Authorization: Bearer ${token}")
-  [ -n "$extra_header" ] && curl_args+=(-H "$extra_header")
+  if [ "$with_tenant" = tenant ]; then
+    curl_args+=(-H "x-org-slug: ${ORG_SLUG}" -H "X-Org-ID: ${ORG_ID}")
+  fi
   curl "${curl_args[@]}" "${BACKEND_URL}${path}" 2>/dev/null || echo "000"
 }
 
 api_post_json() {
-  local path="$1" token="$2" body="$3" extra_header="${4:-}"
+  local path="$1" token="$2" body="$3" with_tenant="${4:-}"
   local curl_args=(-s -o /tmp/zice_role_api.json -w '%{http_code}' -X POST)
   curl_args+=(-H "Authorization: Bearer ${token}" -H "Content-Type: application/json")
-  [ -n "$extra_header" ] && curl_args+=(-H "$extra_header")
+  if [ "$with_tenant" = tenant ]; then
+    curl_args+=(-H "x-org-slug: ${ORG_SLUG}" -H "X-Org-ID: ${ORG_ID}")
+  fi
   curl "${curl_args[@]}" -d "$body" "${BACKEND_URL}${path}" 2>/dev/null || echo "000"
 }
 
@@ -112,16 +115,16 @@ test_persona() {
 
       status=$(api_post_json "/api/v1/rosters" "$token" \
         "{\"player_id\":\"00000001-0001-0001-0001-000000000006\",\"team_designation\":\"${TEAM}\",\"season\":\"${SEASON}\",\"jersey_number\":\"99\",\"status\":\"active\"}" \
-        "$TENANT_HEADER")
+        tenant)
       check_status "$label" "POST /rosters" "$status" "200,201"
       ;;
     coach)
-      status=$(api GET "/api/v1/rosters" "$token" "$TENANT_HEADER")
+      status=$(api GET "/api/v1/rosters" "$token" tenant)
       check_status "$label" "GET /rosters" "$status" "200"
 
       status=$(api_post_json "/api/v1/rosters" "$token" \
         "{\"player_id\":\"00000001-0001-0001-0001-000000000007\",\"team_designation\":\"${TEAM}\",\"season\":\"${SEASON}\",\"jersey_number\":\"98\",\"status\":\"active\"}" \
-        "$TENANT_HEADER")
+        tenant)
       check_status "$label" "POST /rosters" "$status" "200,201"
       ;;
     parent)
@@ -131,7 +134,7 @@ test_persona() {
       status=$(api GET "/api/v1/memberships" "$token")
       check_status "$label" "GET /memberships" "$status" "200"
 
-      status=$(api GET "/api/v1/rosters" "$token" "$TENANT_HEADER")
+      status=$(api GET "/api/v1/rosters" "$token" tenant)
       check_status "$label" "GET /rosters" "$status" "200"
       ;;
     viewer)
