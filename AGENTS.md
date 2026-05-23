@@ -11,7 +11,7 @@
 | Start frontend only | `make dev-frontend` |
 | Start backend only | `make dev-backend` |
 | Start agent only | `make dev-agent` |
-| Sync repos to configured branches | `make sync-repos` (core: `main`, frontend: `merge-all`) |
+| Sync repos to configured branches | `make sync-repos` (core: `main`, frontend: `main`) |
 | Stop all services | `make stop` |
 | Check service status | `make status` |
 | Run all tests | `make test` |
@@ -41,7 +41,7 @@ zice-platform-dev/
     tickets/                ← Ticket markdown files for Linear import
   repos/                    ← Cloned service repos (gitignored)
     zice-core/              ← Go backend (`main`, port 8080)
-    zice-frontend/          ← Next.js frontend (`merge-all`, port 3000)
+    zice-frontend/          ← Next.js frontend (`main`, port 3000)
     zice-agent/             ← AI assistant service (`main`, port 8081)
 ```
 

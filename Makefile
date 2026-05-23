@@ -12,7 +12,7 @@ FRONTEND_PID := $(LOG_DIR)/frontend.pid
 AGENT_PID := $(LOG_DIR)/agent.pid
 # Per-repo branches (override on the make command line, e.g. make sync-repos FRONTEND_BRANCH=main)
 CORE_BRANCH ?= main
-FRONTEND_BRANCH ?= merge-all
+FRONTEND_BRANCH ?= main
 AGENT_BRANCH ?= main
 # Deprecated: use CORE_BRANCH / FRONTEND_BRANCH instead
 REPO_BRANCH ?= $(FRONTEND_BRANCH)

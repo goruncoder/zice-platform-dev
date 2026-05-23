@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 20
     env:
       CORE_REF: main
-      FRONTEND_REF: ${{ github.event_name == 'pull_request' && 'cursor/local-admin-workspace-20260518' || 'merge-all' }}
+      FRONTEND_REF: main
 
     steps:
       - uses: actions/checkout@v4
