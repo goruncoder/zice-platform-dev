@@ -99,6 +99,8 @@ cp .env.example .env
 | `API_URL` | Backend API URL (frontend uses this) | `http://localhost:8080` |
 | `FRONTEND_URL` | Frontend URL | `http://localhost:3000` |
 | `CORS_ORIGINS` | Comma-separated allowed CORS origins | `http://localhost:3000` |
+| `NEXT_PUBLIC_LOGO_URL` | Full logo image path or URL (frontend) | `/images/logo-full.png` |
+| `NEXT_PUBLIC_LOGO_ICON_URL` | Header icon logo path or URL (frontend) | `/images/logo-icon.png` |
 
 ## Makefile Commands
 
