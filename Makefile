@@ -71,9 +71,9 @@ stop: ## Stop all running services
 	-@if [ -f $(BACKEND_PID) ]; then kill $$(cat $(BACKEND_PID)) 2>/dev/null; rm -f $(BACKEND_PID); fi
 	-@if [ -f $(FRONTEND_PID) ]; then kill $$(cat $(FRONTEND_PID)) 2>/dev/null; rm -f $(FRONTEND_PID); fi
 	-@if [ -f $(AGENT_PID) ]; then kill $$(cat $(AGENT_PID)) 2>/dev/null; rm -f $(AGENT_PID); fi
-	-@fuser -k 8080/tcp 2>/dev/null || true
-	-@fuser -k 8081/tcp 2>/dev/null || true
-	-@fuser -k 3000/tcp 2>/dev/null || true
+	-@pid=$$(lsof -ti:8080 2>/dev/null); [ -n "$$pid" ] && kill $$pid 2>/dev/null || true
+	-@pid=$$(lsof -ti:8081 2>/dev/null); [ -n "$$pid" ] && kill $$pid 2>/dev/null || true
+	-@pid=$$(lsof -ti:3000 2>/dev/null); [ -n "$$pid" ] && kill $$pid 2>/dev/null || true
 	@echo "All services stopped."
 
 teardown: ## Stop all services and remove Docker images (VOLUMES=1 to wipe DB)

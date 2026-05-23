@@ -85,7 +85,7 @@ make dev
 | Repo | Language | Purpose | Port |
 |---|---|---|---|
 | [zice-core](https://github.com/goruncoder/zice-core) | Go 1.23 | REST API backend | 8080 |
-| [zice-frontend](https://github.com/goruncoder/zice-frontend) | TypeScript/Next.js 15 | Web frontend | 3000 |
+| [zice-frontend](https://github.com/goruncoder/zice-frontend) | TypeScript/Next.js 14 | Web frontend | 3000 |
 | [zice-agent](https://github.com/goruncoder/zice-agent) | Go 1.25 | AI chat / tool-calling service | 8081 |
 
 Each service repo has its own `AGENTS.md` (maintained from `docs/templates/AGENTS/`). After `make clone`, run `make sync-agent-docs` so local copies match the platform templates.

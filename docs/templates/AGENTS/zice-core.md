@@ -14,7 +14,7 @@ Cross-repo context lives in [zice-platform-dev](https://github.com/goruncoder/zi
 | API reference | [docs/API.md](https://github.com/goruncoder/zice-platform-dev/blob/main/docs/API.md) |
 | Implementation tickets (`C*` = this repo) | [docs/tickets/](https://github.com/goruncoder/zice-platform-dev/tree/main/docs/tickets) |
 
-**Local full stack:** Clone [zice-platform-dev](https://github.com/goruncoder/zice-platform-dev), run `make clone`, then `make dev` or `make check` to lint/test core + frontend + agent together.
+**Local full stack:** Clone [zice-platform-dev](https://github.com/goruncoder/zice-platform-dev). From that repository, run `make clone`, then `make dev` to start the stack or `make check` to lint/test core + frontend + agent together.
 
 ## Quick Reference
 

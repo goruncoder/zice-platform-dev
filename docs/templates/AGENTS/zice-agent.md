@@ -36,12 +36,12 @@ Cross-repo context lives in [zice-platform-dev](https://github.com/goruncoder/zi
 
 ## Architecture
 
-```
+```text
 cmd/server/main.go              ← Entry point, graceful shutdown
 internal/
   api/
     router.go                   ← Chi routes, middleware chain
-    handlers/                   ← health, chat (SSE), conversations, suggestions
+    handlers/                   ← health, chat (SSE), conversations, suggestions, usage
     middleware/                 ← Auth (Supabase JWT), CORS, logger, rate limits, RequireOrg
     response/                   ← JSON envelope helpers (match zice-core style)
   agent/                        ← LLM engine, tool loop
@@ -69,7 +69,11 @@ sql/
 |---|---|---|
 | `GET /api/v1/health` | Public | Health + DB ping |
 | `GET /api/v1/suggestions` | JWT | Role-based prompt suggestions |
-| Chat / conversations routes | JWT + org | SSE chat, conversation CRUD (see `internal/api/router.go`) |
+| `POST /api/v1/chat` | JWT + org | SSE chat stream |
+| `GET /api/v1/conversations` | JWT + org | List conversations |
+| `GET /api/v1/conversations/{id}/messages` | JWT + org | Conversation messages |
+| `DELETE /api/v1/conversations/{id}` | JWT + org | Delete conversation |
+| `GET /api/v1/usage` | JWT + org | Org usage stats |
 
 Org context: `middleware.RequireOrg` validates membership via zice-core before tenant-scoped handlers run.
 
@@ -80,7 +84,7 @@ See `.env.example`. Critical vars:
 | Variable | Purpose |
 |---|---|
 | `PORT` | Listen port (default `8081`) |
-| `DATABASE_URL` | PostgreSQL for ai_* tables (local: port `54322` via platform-dev Docker) |
+| `DATABASE_URL` | PostgreSQL for ai_* tables — use port `54322` with [zice-platform-dev](https://github.com/goruncoder/zice-platform-dev) Docker Postgres (see `.env.example`) |
 | `SUPABASE_URL` / `SUPABASE_JWT_SECRET` | JWT validation (same auth as frontend/core) |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | LLM provider |
 | `ZICE_CORE_URL` / `ZICE_CORE_SERVICE_KEY` | Service-to-service core API |
