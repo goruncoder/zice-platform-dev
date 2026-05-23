@@ -137,11 +137,30 @@ cp .env.example .env
 | Command | Description |
 |---------|-------------|
 | `make clone` | Clone all service repos into `./repos/` |
+| `make update` | Pull latest `main` for all service repos (clones first if needed) |
+| `make checkout-pr REPO=<name> PR=<number>` | Checkout a PR branch for local testing |
 | `make install` | Install dependencies for all repos |
 | `make sync-repos` | Pull configured branches for all service repos |
 | `make seed` | Initialize DB (auth stub + migrations + test data) |
 | `make clean` | Remove build artifacts and dependencies |
 | `make smoke` | Run smoke tests against local services |
+
+### Testing a PR Locally
+
+```bash
+# Pull latest main for all repos
+make update
+
+# Checkout a specific PR (e.g., zice-core PR #15)
+make checkout-pr REPO=zice-core PR=15
+
+# Install deps and start services
+make install
+make dev
+
+# When done, switch back to main
+cd repos/zice-core && git checkout main
+```
 
 ### Database
 

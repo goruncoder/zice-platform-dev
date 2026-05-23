@@ -35,6 +35,8 @@
 | Pre-merge gate | `make check` (lint + test across all repos) |
 | Clone repos | `make clone` |
 | Sync AGENTS.md into clones | `make sync-agent-docs` |
+| Update repos to latest main | `make update` |
+| Checkout a PR locally | `make checkout-pr REPO=zice-core PR=15` |
 | Install deps | `make install` |
 | Apply DB migrations | `make db-migrate` |
 | Reset DB | `make db-reset` |
