@@ -1,14 +1,17 @@
 # AGENTS.md — zice-platform-dev
 
-> Development environment orchestrator for the Zice platform. Coordinates zice-core (Go backend) and zice-frontend (Next.js) for local development and testing.
+> Development environment orchestrator for the Zice platform. Coordinates zice-core (Go backend), zice-frontend (Next.js), and zice-agent (AI assistant) for local development and testing.
 
 ## Quick Reference
 
 | What | Command |
 |---|---|
-| Start everything | `make dev` (DB + backend + frontend) |
+| Start everything | `make dev-all` (DB + backend + frontend + agent) |
+| Start without agent | `make dev` |
 | Start frontend only | `make dev-frontend` |
 | Start backend only | `make dev-backend` |
+| Start agent only | `make dev-agent` |
+| Sync repos to configured branches | `make sync-repos` (core: `main`, frontend: `merge-all`) |
 | Stop all services | `make stop` |
 | Check service status | `make status` |
 | Run all tests | `make test` |
@@ -23,7 +26,7 @@
 
 ## Architecture
 
-This repo does NOT contain application code. It orchestrates the other two repos:
+This repo does NOT contain application code. It orchestrates the service repos:
 
 ```
 zice-platform-dev/
@@ -37,8 +40,9 @@ zice-platform-dev/
     design-doc-zice-phase1-phase2.md  ← Full design document
     tickets/                ← Ticket markdown files for Linear import
   repos/                    ← Cloned service repos (gitignored)
-    zice-core/              ← Go backend (cloned via `make clone`)
-    zice-frontend/          ← Next.js frontend (cloned via `make clone`)
+    zice-core/              ← Go backend (`main`, port 8080)
+    zice-frontend/          ← Next.js frontend (`merge-all`, port 3000)
+    zice-agent/             ← AI assistant service (`main`, port 8081)
 ```
 
 ## Local Development Setup
@@ -65,8 +69,11 @@ make dev
 |---|---|---|---|
 | [zice-core](https://github.com/goruncoder/zice-core) | Go 1.23 | REST API backend | 8080 |
 | [zice-frontend](https://github.com/goruncoder/zice-frontend) | TypeScript/Next.js 15 | Web frontend | 3000 |
+| [zice-agent](https://github.com/goruncoder/zice-agent) | Go 1.25 | AI chat / tool-calling service | 8081 |
 
 Each repo has its own `AGENTS.md` with detailed context. Refer to those for repo-specific guidance.
+
+`make db-migrate` applies SQL from both `zice-core/supabase/migrations/` and `zice-agent/sql/migrations/`.
 
 ## Database
 

@@ -29,6 +29,7 @@ Full-stack local development environment for the Zice multi-tenant sports manage
 |------|---------|-----|
 | `zice-core` | Go REST API backend | https://github.com/goruncoder/zice-core |
 | `zice-frontend` | Next.js frontend | https://github.com/goruncoder/zice-frontend |
+| `zice-agent` | AI assistant (chat + tools against core API) | https://github.com/goruncoder/zice-agent |
 | `zice-platform-dev` | This repo — dev environment orchestration | https://github.com/goruncoder/zice-platform-dev |
 
 ## Prerequisites
@@ -48,8 +49,8 @@ make clone
 cp .env.example .env
 # Edit .env with your Supabase credentials (see Configuration below)
 
-# 3. Start everything
-make dev
+# 3. Start everything (including AI agent)
+make dev-all
 
 # 4. Verify
 make status
@@ -98,7 +99,9 @@ cp .env.example .env
 
 | Command | Description |
 |---------|-------------|
-| `make dev` | Start all services (frontend + backend + database) |
+| `make dev-all` | Start full stack (database + backend + frontend + agent) |
+| `make dev` | Start database + backend + frontend (no agent) |
+| `make dev-agent` | Start only the agent (foreground) |
 | `make dev-frontend` | Start only the frontend |
 | `make dev-backend` | Start only the backend |
 | `make stop` | Stop all running services |

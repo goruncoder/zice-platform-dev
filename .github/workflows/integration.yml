@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      CORE_REF: ${{ github.event_name == 'pull_request' && 'cursor/local-dev-auth-20260518' || 'merge-all' }}
+      CORE_REF: main
       FRONTEND_REF: ${{ github.event_name == 'pull_request' && 'cursor/local-admin-workspace-20260518' || 'merge-all' }}
 
     steps:
