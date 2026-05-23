@@ -65,7 +65,7 @@ check_http() {
   fi
 
   if [ -n "$expect_body" ] && $ok; then
-    grep -q "$expect_body" "$INTEGRATION_BODY" 2>/dev/null || ok=false
+    grep -Fq "$expect_body" "$INTEGRATION_BODY" 2>/dev/null || ok=false
   fi
 
   record "$ok" "$name" "HTTP $status (expected $expect_status)"

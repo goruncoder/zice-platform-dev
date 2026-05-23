@@ -199,14 +199,7 @@ _require-repos:
 	@test -f "$(FRONTEND_DIR)/package.json" || (echo "Error: zice-frontend is missing application code. Run 'make sync-repos' or 'make setup'." && exit 1)
 
 update: clone ## Pull latest main for all service repos
-	@echo "Updating zice-core..."
-	@cd $(CORE_DIR) && git checkout main && git pull origin main
-	@echo "Updating zice-frontend..."
-	@cd $(FRONTEND_DIR) && git checkout main && git pull origin main
-	@if [ -d "$(AGENT_DIR)/.git" ]; then \
-		echo "Updating zice-agent..."; \
-		cd $(AGENT_DIR) && git checkout main && git pull origin main; \
-	fi
+	@$(MAKE) --no-print-directory sync-repos CORE_BRANCH=main FRONTEND_BRANCH=main AGENT_BRANCH=main
 	@echo "All repos updated to latest main."
 
 checkout-pr: ## Checkout a PR branch for local testing (usage: make checkout-pr REPO=zice-core PR=15)
