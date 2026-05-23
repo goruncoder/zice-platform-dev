@@ -17,10 +17,8 @@ BACKEND_URL="${BACKEND_URL%/}"
 TEST_USERS="${ROOT_DIR}/scripts/seed/test-users.json"
 PASSWORD="${TEST_PASSWORD:-password123}"
 
-ORG_ID="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['organization']['id'])")"
-ORG_SLUG="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['organization']['slug'])")"
-TEAM="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['team']['designation'])")"
-SEASON="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['team']['season'])")"
+IFS='|' read -r ORG_ID ORG_SLUG TEAM SEASON < <(python3 -c "import json; d=json.load(open('$TEST_USERS')); print(f\"{d['organization']['id']}|{d['organization']['slug']}|{d['team']['designation']}|{d['team']['season']}\")")
+TENANT_HEADER="x-org-slug: ${ORG_SLUG}"
 
 PASS=0
 FAIL=0
@@ -114,16 +112,16 @@ test_persona() {
 
       status=$(api_post_json "/api/v1/rosters" "$token" \
         "{\"player_id\":\"00000001-0001-0001-0001-000000000006\",\"team_designation\":\"${TEAM}\",\"season\":\"${SEASON}\",\"jersey_number\":\"99\",\"status\":\"active\"}" \
-        "X-Org-ID: ${ORG_ID}")
+        "$TENANT_HEADER")
       check_status "$label" "POST /rosters" "$status" "200,201"
       ;;
     coach)
-      status=$(api GET "/api/v1/rosters" "$token" "X-Org-ID: ${ORG_ID}")
+      status=$(api GET "/api/v1/rosters" "$token" "$TENANT_HEADER")
       check_status "$label" "GET /rosters" "$status" "200"
 
       status=$(api_post_json "/api/v1/rosters" "$token" \
         "{\"player_id\":\"00000001-0001-0001-0001-000000000007\",\"team_designation\":\"${TEAM}\",\"season\":\"${SEASON}\",\"jersey_number\":\"98\",\"status\":\"active\"}" \
-        "X-Org-ID: ${ORG_ID}")
+        "$TENANT_HEADER")
       check_status "$label" "POST /rosters" "$status" "200,201"
       ;;
     parent)
@@ -133,7 +131,7 @@ test_persona() {
       status=$(api GET "/api/v1/memberships" "$token")
       check_status "$label" "GET /memberships" "$status" "200"
 
-      status=$(api GET "/api/v1/rosters" "$token" "X-Org-ID: ${ORG_ID}")
+      status=$(api GET "/api/v1/rosters" "$token" "$TENANT_HEADER")
       check_status "$label" "GET /rosters" "$status" "200"
       ;;
     viewer)
