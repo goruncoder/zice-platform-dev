@@ -41,7 +41,8 @@
 | Checkout a PR locally | `make checkout-pr REPO=zice-core PR=15` (also `zice-frontend`, `zice-agent`) |
 | Install deps | `make install` |
 | Apply DB migrations | `make db-migrate` |
-| Reset DB | `make db-reset` |
+| Wipe DB schema | `make db-wipe` (then `make seed`) |
+| Reset DB | `make db-reset` (wipe + migrate only; prefer `make seed`) |
 | Smoke tests | `make smoke` |
 | Show all commands | `make help` |
 

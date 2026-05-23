@@ -1,6 +1,6 @@
 .PHONY: dev dev-all dev-frontend dev-backend dev-agent _start-agent stop teardown teardown-volumes restart status logs logs-frontend logs-backend logs-agent \
        test test-frontend test-backend test-agent lint lint-frontend lint-backend lint-agent check \
-       integration integration-ci integration-roles integration-all test-full test-full-with-teardown seed clone sync-repos sync-agent-docs setup _require-repos install clean smoke db-migrate db-migrate-agent db-reset \
+       integration integration-ci integration-roles integration-all test-full test-full-with-teardown seed clone sync-repos sync-agent-docs setup _require-repos install clean smoke db-migrate db-migrate-agent db-wipe db-reset \
        update checkout-pr
 
 REPOS_DIR := repos
@@ -241,9 +241,9 @@ db-migrate: ## Run pending database migrations
 	@for f in $$(ls $(CORE_DIR)/supabase/migrations/*.sql 2>/dev/null | sort); do \
 		echo "Applying: $$f"; \
 		if command -v psql >/dev/null 2>&1; then \
-			PGPASSWORD=postgres psql -h localhost -p 54322 -U postgres -d postgres -f "$$f"; \
+			PGPASSWORD=postgres psql -h localhost -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$$f"; \
 		else \
-			docker compose exec -T db psql -U postgres -d postgres -f - < "$$f"; \
+			docker compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < "$$f"; \
 		fi; \
 	done
 	@echo "Core migrations complete."
@@ -257,21 +257,24 @@ db-migrate-agent: ## Apply zice-agent SQL migrations
 		for f in $$(ls $(AGENT_DIR)/sql/migrations/*.sql 2>/dev/null | sort); do \
 			echo "Applying: $$f"; \
 			if command -v psql >/dev/null 2>&1; then \
-				PGPASSWORD=postgres psql -h localhost -p 54322 -U postgres -d postgres -f "$$f"; \
+				PGPASSWORD=postgres psql -h localhost -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$$f"; \
 			else \
-				docker compose exec -T db psql -U postgres -d postgres -f - < "$$f"; \
+				docker compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < "$$f"; \
 			fi; \
 		done; \
 		echo "Agent migrations complete."; \
 	fi
 
-db-reset: ## Reset database and re-run all migrations
-	@echo "Resetting database..."
+db-wipe: ## Drop and recreate public schema (no migrations — use before make seed)
+	@echo "Wiping public schema..."
 	@if command -v psql >/dev/null 2>&1; then \
 		PGPASSWORD=postgres psql -h localhost -p 54322 -U postgres -d postgres -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"; \
 	else \
 		docker compose exec -T db psql -U postgres -d postgres -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"; \
 	fi
+
+db-reset: ## Wipe DB and re-run migrations (no auth stub or seed — prefer make seed)
+	@$(MAKE) --no-print-directory db-wipe
 	$(MAKE) db-migrate
 
 # =============================================================================

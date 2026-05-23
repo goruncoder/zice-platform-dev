@@ -25,7 +25,9 @@ trap cleanup EXIT
 echo "=== Integration CI: starting stack ==="
 make stop >/dev/null 2>&1 || true
 docker compose up -d --wait
-# seed.sh creates auth stubs, runs migrations, then loads data (do not db-migrate here)
+# Wipe persisted Docker volume so migrations are not re-applied on an existing schema
+make db-wipe
+# seed.sh creates auth stubs, runs migrations, then loads data
 ./scripts/seed.sh
 
 echo "Starting backend and frontend..."

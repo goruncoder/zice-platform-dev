@@ -170,7 +170,8 @@ cd repos/zice-core && git checkout main
 |---------|-------------|
 | `make seed` | Create local `auth` stub, apply migrations, load test org/users |
 | `make db-migrate` | Apply pending migrations only (requires DB running + auth stub from a prior `make seed`) |
-| `make db-reset` | Drop `public` schema and re-run migrations (use `make seed` afterward on a fresh DB) |
+| `make db-wipe` | Drop `public` schema only (next: `make seed` for auth stub + migrations + data) |
+| `make db-reset` | `make db-wipe` then `make db-migrate` only (no seed — prefer `make seed`) |
 
 ### Integration test commands
 
@@ -179,7 +180,7 @@ cd repos/zice-core && git checkout main
 | `make integration` | Stack health checks (DB schema, API, frontend, env wiring) |
 | `make integration-roles` | Login as each seeded user and verify role-based API access |
 | `make integration-all` | Run both integration targets |
-| `make integration-ci` | Bootstrap stack, seed, run all integration tests, then stop |
+| `make integration-ci` | Wipe DB, seed, run all integration tests, then stop (clean run each time) |
 
 ## Database setup
 
