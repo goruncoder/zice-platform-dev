@@ -1,0 +1,42 @@
+{
+  "organization": {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "slug": "joliet-jaguars",
+    "name": "Joliet Jaguars"
+  },
+  "team": {
+    "designation": "14U Gold",
+    "season": "2025-26"
+  },
+  "password": "password123",
+  "users": [
+    {
+      "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "email": "admin@jolietjaguars.org",
+      "role": "admin",
+      "label": "Org admin",
+      "description": "Full org management — invites, memberships, rosters"
+    },
+    {
+      "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "email": "coach@jolietjaguars.org",
+      "role": "coach",
+      "label": "Team admin (coach)",
+      "description": "Team operations — view and manage rosters"
+    },
+    {
+      "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      "email": "parent@jolietjaguars.org",
+      "role": "parent",
+      "label": "Parent",
+      "description": "Guardian of players 1 & 2 — view players and rosters"
+    },
+    {
+      "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      "email": "viewer@jolietjaguars.org",
+      "role": "viewer",
+      "label": "Viewer",
+      "description": "Read-only org member"
+    }
+  ]
+}
