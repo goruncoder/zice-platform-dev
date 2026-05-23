@@ -17,8 +17,10 @@ BACKEND_URL="${BACKEND_URL%/}"
 TEST_USERS="${ROOT_DIR}/scripts/seed/test-users.json"
 PASSWORD="${TEST_PASSWORD:-password123}"
 
-IFS='|' read -r ORG_ID ORG_SLUG TEAM SEASON < <(python3 -c "import json; d=json.load(open('$TEST_USERS')); print(f\"{d['organization']['id']}|{d['organization']['slug']}|{d['team']['designation']}|{d['team']['season']}\")")
-TENANT_HEADER="x-org-slug: ${ORG_SLUG}"
+ORG_ID="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['organization']['id'])")"
+ORG_SLUG="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['organization']['slug'])")"
+TEAM="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['team']['designation'])")"
+SEASON="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['team']['season'])")"
 
 PASS=0
 FAIL=0
@@ -156,12 +158,9 @@ if [ "${DEV_AUTH_ENABLED:-}" != "true" ]; then
   echo "WARN: DEV_AUTH_ENABLED is not true — login may fail without Supabase on :54321"
 fi
 
-while IFS= read -r row; do
-  email=$(echo "$row" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['email'])")
-  label=$(echo "$row" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['label'])")
-  role=$(echo "$row" | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['role'])")
+while IFS='|' read -r email label role; do
   test_persona "$email" "$label" "$role"
-done < <(python3 -c "import json; [print(json.dumps(u)) for u in json.load(open('$TEST_USERS'))['users']]")
+done < <(python3 -c "import json; [print(f\"{u['email']}|{u['label']}|{u['role']}\") for u in json.load(open('$TEST_USERS'))['users']]")
 
 echo "-------------------------------------------"
 printf "%-6s | %-22s | %-24s | %s\n" "Result" "Persona" "Step" "Detail"
