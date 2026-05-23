@@ -2,31 +2,51 @@
 
 ## Overview
 
-Zice is a multi-tenant sports management platform built with a "Family-First Universal Passport" identity model. The architecture separates concerns across two main services with Supabase providing managed authentication and database.
+Zice is a multi-tenant sports management platform built with a "Family-First Universal Passport" identity model. Application logic is split across three services (frontend, core API, AI agent) with Supabase providing managed authentication and PostgreSQL.
 
 ## Service Map
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Cloudflare DNS                           │
-│   *.zice.io (wildcard)  │  custom domains (BYOD)               │
-└────────────┬────────────┴───────────────┬───────────────────────┘
-             │                            │
-     ┌───────▼────────┐          ┌───────▼────────┐
-     │    Vercel       │          │    Railway      │
-     │  zice-frontend  │────API──▶│   zice-core     │
-     │  (Next.js 15)   │          │   (Go 1.23)     │
-     │  Port 3000      │          │   Port 8080     │
-     └───────┬─────────┘          └───────┬─────────┘
-             │                            │
-             │        ┌───────────────────┘
-             │        │
-     ┌───────▼────────▼──┐
-     │     Supabase       │
-     │  PostgreSQL + Auth  │
-     │  + RLS Policies     │
-     └────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           Cloudflare DNS                                 │
+│      *.zice.io (wildcard)  │  custom domains (BYOD)                      │
+└──────────────┬─────────────┴──────────────────┬─────────────────────────┘
+               │                                │
+       ┌───────▼────────┐              ┌────────▼─────────┐
+       │    Vercel       │              │    Railway       │
+       │  zice-frontend  │──REST API───▶│   zice-core      │
+       │  (Next.js 14)   │              │   (Go 1.23)      │
+       │  Port 3000      │              │   Port 8080      │
+       └───────┬─────────┘              └────────┬─────────┘
+               │                               │
+               │  Chat widget (SSE)            │  Tool calls (service key)
+               │                               │
+       ┌───────▼─────────┐              ┌──────▼─────────┐
+       │    Railway       │──REST API──▶│  (same core)   │
+       │   zice-agent     │              │                │
+       │   (Go 1.25)      │              │                │
+       │   Port 8081      │              │                │
+       └───────┬─────────┘              └────────┬───────┘
+               │                                 │
+               └─────────────┬───────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │    Supabase      │
+                    │ PostgreSQL + Auth│
+                    │  + RLS Policies  │
+                    └─────────────────┘
 ```
+
+### Local development (zice-platform-dev)
+
+| Service | Repo | Port | Health |
+|---|---|---|---|
+| Frontend | `zice-frontend` | 3000 | `http://localhost:3000` |
+| Core API | `zice-core` | 8080 | `GET /api/v1/health` |
+| AI agent | `zice-agent` | 8081 | `GET /api/v1/health` |
+| PostgreSQL | Docker Compose | 54322 | `make db-migrate` |
+
+Orchestration: `make dev` (DB + core + frontend), `make dev-all` (+ agent). See [AGENTS.md](../AGENTS.md) in the platform repo.
 
 ## Service Responsibilities
 
@@ -46,11 +66,29 @@ Zice is a multi-tenant sports management platform built with a "Family-First Uni
 - **Auth endpoints**: Signup, login, magic link, invite system
 - **Tenant resolution**: Custom domain → org slug mapping
 
+### zice-agent (Go AI service)
+
+- **Chat API**: Conversations, messages, SSE streaming responses
+- **Tool calling**: Invokes zice-core REST endpoints for schedule, roster, and comms data (no direct reads of platform tables for org/player data)
+- **Own schema**: `ai_conversations`, `ai_messages`, `ai_usage_logs`, `ai_org_config` in shared PostgreSQL
+- **Auth**: Same Supabase JWT as the frontend; org context validated via zice-core before tenant-scoped routes
+- **Migrations**: `sql/migrations/*.sql` in the agent repo; applied locally via `make db-migrate` (platform) or `make db-migrate-agent`
+- **Deployment**: Railway (port 8081)
+
 ### Supabase
 
-- **PostgreSQL**: All persistent data with Row Level Security (RLS)
+- **PostgreSQL**: Platform data (core migrations) plus agent tables (agent migrations), all with Row Level Security (RLS) on platform tables
 - **Auth**: User signup, login, JWT issuance, magic links, OAuth
-- **RLS Policies**: 22 policies across 6 tables ensuring data isolation
+- **RLS Policies**: Enforce org-scoped access on platform tables (see core migrations)
+
+## Database & migrations
+
+| Source | Path | Applied by |
+|---|---|---|
+| Platform schema | `zice-core/supabase/migrations/` | `make db-migrate` |
+| AI agent schema | `zice-agent/sql/migrations/` | `make db-migrate-agent` (also runs at end of `db-migrate`) |
+
+Local Postgres runs in Docker (`localhost:54322`). Production uses Supabase-hosted PostgreSQL.
 
 ## Database Schema
 
@@ -153,6 +191,24 @@ Key principles:
    │  - Coaches see roster players
    ▼
 6. Response → Browser
+```
+
+### AI chat request (frontend → agent → core)
+
+```
+1. Browser → zice-agent (authenticated)
+   │  Authorization: Bearer <jwt>
+   │  Org context resolved (middleware calls zice-core)
+   ▼
+2. zice-agent chat handler
+   │  Load/create conversation in ai_* tables (agent DB)
+   │  Stream tokens via SSE
+   ▼
+3. LLM tool loop (when needed)
+   │  Agent tools call zice-core REST API (ZICE_CORE_URL + service key)
+   │  Never query platform tables directly for org/player/roster data
+   ▼
+4. Response streamed → Browser (chat widget in zice-frontend)
 ```
 
 ## Future Service Extraction

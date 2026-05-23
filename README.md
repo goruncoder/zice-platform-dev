@@ -32,6 +32,8 @@ Full-stack local development environment for the Zice multi-tenant sports manage
 | `zice-agent` | AI assistant (chat + tools against core API) | https://github.com/goruncoder/zice-agent |
 | `zice-platform-dev` | This repo — dev environment orchestration | https://github.com/goruncoder/zice-platform-dev |
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow, doc updates, and agent context (`AGENTS.md` templates).
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2+
@@ -137,11 +139,30 @@ cp .env.example .env
 | Command | Description |
 |---------|-------------|
 | `make clone` | Clone all service repos into `./repos/` |
+| `make update` | Pull latest `main` for all service repos (clones first if needed) |
+| `make checkout-pr REPO=<name> PR=<number>` | Checkout a PR branch for local testing |
 | `make install` | Install dependencies for all repos |
 | `make sync-repos` | Pull configured branches for all service repos |
 | `make seed` | Initialize DB (auth stub + migrations + test data) |
 | `make clean` | Remove build artifacts and dependencies |
 | `make smoke` | Run smoke tests against local services |
+
+### Testing a PR Locally
+
+```bash
+# Pull latest main for all repos
+make update
+
+# Checkout a specific PR (e.g., zice-core PR #15)
+make checkout-pr REPO=zice-core PR=15
+
+# Install deps and start services
+make install
+make dev
+
+# When done, switch back to main
+cd repos/zice-core && git checkout main
+```
 
 ### Database
 
@@ -151,7 +172,7 @@ cp .env.example .env
 | `make db-migrate` | Apply pending migrations only (requires DB running + auth stub from a prior `make seed`) |
 | `make db-reset` | Drop `public` schema and re-run migrations (use `make seed` afterward on a fresh DB) |
 
-### Integration tests
+### Integration test commands
 
 | Command | Description |
 |---------|-------------|

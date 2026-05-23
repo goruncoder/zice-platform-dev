@@ -1,0 +1,27 @@
+---
+description: Tenant routing and auth headers across frontend and APIs
+alwaysApply: true
+---
+
+# Tenant & auth
+
+## Request headers
+
+```
+Authorization: Bearer <supabase-jwt>
+x-org-slug: joliet-jaguars
+```
+
+## Flow
+
+1. **Frontend** middleware resolves org from subdomain or custom domain → sets `x-org-slug`.
+2. **zice-core** validates JWT, then tenant middleware resolves org from `x-org-slug`.
+3. **zice-agent** validates JWT and org via zice-core before chat/conversation routes.
+
+## Do not
+
+- Hardcode org slugs in production code (use config / request context).
+- Call zice-core from the browser with a service key (agent only).
+- Read platform org/player tables from zice-agent (use core REST tools).
+
+See `docs/AUTH.md` and `docs/MULTI-TENANT.md` in zice-platform-dev.

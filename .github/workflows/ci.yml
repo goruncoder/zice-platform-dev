@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "devin/**"]
+  pull_request:
+    branches: [main, "devin/**"]
+
+jobs:
+  makefile-check:
+    name: Makefile Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Makefile targets (dry-run)
+        run: |
+          echo "=== Checking Makefile syntax ==="
+          # Verify Makefile parses correctly
+          make -n help
+          make -n clone
+          make -n install
+          make -n update
+          make -n checkout-pr REPO=zice-core PR=1 2>&1 || true
+          echo "Makefile syntax OK"
+
+  docker-compose-check:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: |
+          echo "=== Validating Docker Compose config ==="
+          docker compose config --quiet
+          echo "Docker Compose config OK"
+
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli
+
+      - name: Lint markdown files
+        run: markdownlint '**/*.md' --ignore node_modules --config .markdownlint.json
+
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint YAML files
+        run: yamllint -d relaxed docker-compose.yml .github/
+
+  link-check:
+    name: Link Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check
+
+      - name: Check links in markdown files
+        run: |
+          find . -name '*.md' -not -path './node_modules/*' | while read file; do
+            echo "Checking: $file"
+            markdown-link-check "$file" --quiet --config .github/link-check-config.json || true
+          done
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint shell commands in Makefile
+        run: |
+          echo "=== Extracting and checking shell snippets ==="
+          # Check any .sh files in the repo
+          find . -name '*.sh' -not -path './repos/*' -not -path './node_modules/*' | while read file; do
+            echo "Checking: $file"
+            shellcheck "$file"
+          done
+          echo "ShellCheck OK (no .sh files outside repos/ is expected)"

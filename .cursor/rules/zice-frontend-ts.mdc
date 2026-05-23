@@ -1,0 +1,16 @@
+---
+description: zice-frontend Next.js conventions
+globs: repos/zice-frontend/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# zice-frontend
+
+- App Router under `src/app/`; use Server Components unless the page needs client interactivity.
+- API calls go through `src/lib/api/client.ts` with the user's JWT — no service keys in the browser.
+- Tenant: respect `src/middleware.ts`; pass org context via headers the backend expects.
+- Styling: Tailwind only; icons via Lucide.
+- Roster Auditor: client-side only — do not upload CSV roster data to the server.
+- New admin pages: reuse `src/components/admin/DataTable`, soft-delete/restore components.
+
+Repo `AGENTS.md` (after `make sync-agent-docs`) lists routes and env vars.

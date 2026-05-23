@@ -1,6 +1,7 @@
 .PHONY: dev dev-all dev-frontend dev-backend dev-agent _start-agent stop teardown teardown-volumes restart status logs logs-frontend logs-backend logs-agent \
        test test-frontend test-backend test-agent lint lint-frontend lint-backend lint-agent check \
-       integration integration-ci integration-roles integration-all test-full test-full-with-teardown seed clone sync-repos setup _require-repos install clean smoke db-migrate db-migrate-agent db-reset
+       integration integration-ci integration-roles integration-all test-full test-full-with-teardown seed clone sync-repos sync-agent-docs setup _require-repos install clean smoke db-migrate db-migrate-agent db-reset \
+       update checkout-pr
 
 REPOS_DIR := repos
 CORE_DIR := $(REPOS_DIR)/zice-core
@@ -71,9 +72,9 @@ stop: ## Stop all running services
 	-@if [ -f $(BACKEND_PID) ]; then kill $$(cat $(BACKEND_PID)) 2>/dev/null; rm -f $(BACKEND_PID); fi
 	-@if [ -f $(FRONTEND_PID) ]; then kill $$(cat $(FRONTEND_PID)) 2>/dev/null; rm -f $(FRONTEND_PID); fi
 	-@if [ -f $(AGENT_PID) ]; then kill $$(cat $(AGENT_PID)) 2>/dev/null; rm -f $(AGENT_PID); fi
-	-@fuser -k 8080/tcp 2>/dev/null || true
-	-@fuser -k 8081/tcp 2>/dev/null || true
-	-@fuser -k 3000/tcp 2>/dev/null || true
+	-@pid=$$(lsof -ti:8080 2>/dev/null); [ -n "$$pid" ] && kill $$pid 2>/dev/null || true
+	-@pid=$$(lsof -ti:8081 2>/dev/null); [ -n "$$pid" ] && kill $$pid 2>/dev/null || true
+	-@pid=$$(lsof -ti:3000 2>/dev/null); [ -n "$$pid" ] && kill $$pid 2>/dev/null || true
 	@echo "All services stopped."
 
 teardown: ## Stop all services and remove Docker images (VOLUMES=1 to wipe DB)
@@ -169,6 +170,11 @@ clone: ## Clone all service repos
 		echo "zice-agent already cloned"; \
 	fi
 	@$(MAKE) sync-repos
+	@$(MAKE) --no-print-directory sync-agent-docs
+
+sync-agent-docs: ## Copy AGENTS.md templates into cloned service repos
+	@chmod +x scripts/sync-agent-docs.sh
+	@./scripts/sync-agent-docs.sh
 
 sync-repos: ## Checkout configured branches in service repos
 	@echo "Syncing zice-core to $(CORE_BRANCH)..."
@@ -191,6 +197,27 @@ setup: clone install ## Clone repos, sync branches, and install dependencies
 _require-repos:
 	@test -f "$(CORE_DIR)/cmd/server/main.go" || (echo "Error: zice-core is missing application code. Run 'make sync-repos' or 'make setup'." && exit 1)
 	@test -f "$(FRONTEND_DIR)/package.json" || (echo "Error: zice-frontend is missing application code. Run 'make sync-repos' or 'make setup'." && exit 1)
+
+update: clone ## Pull latest main for all service repos
+	@$(MAKE) --no-print-directory sync-repos CORE_BRANCH=main FRONTEND_BRANCH=main AGENT_BRANCH=main
+	@echo "All repos updated to latest main."
+
+checkout-pr: ## Checkout a PR branch for local testing (usage: make checkout-pr REPO=zice-core PR=15)
+	@if [ -z "$(REPO)" ] || [ -z "$(PR)" ]; then \
+		echo "Usage: make checkout-pr REPO=<zice-core|zice-frontend|zice-agent> PR=<number>"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make checkout-pr REPO=zice-core PR=15"; \
+		echo "  make checkout-pr REPO=zice-frontend PR=8"; \
+		echo "  make checkout-pr REPO=zice-agent PR=7"; \
+		exit 1; \
+	fi
+	@case "$(REPO)" in zice-core|zice-frontend|zice-agent) ;; \
+		*) echo "Error: REPO must be zice-core, zice-frontend, or zice-agent"; exit 1;; \
+	esac
+	@echo "Fetching PR #$(PR) for $(REPO)..."
+	@cd $(REPOS_DIR)/$(REPO) && git fetch origin pull/$(PR)/head && git checkout -B pr-$(PR) FETCH_HEAD
+	@echo "Checked out PR #$(PR) on $(REPO). Run 'make install' to update dependencies."
 
 install: ## Install dependencies for all repos
 	@$(MAKE) --no-print-directory _require-repos

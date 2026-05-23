@@ -26,6 +26,8 @@ FRONTEND_URL="${FRONTEND_URL%/}"
 PASS=0
 FAIL=0
 RESULTS=()
+INTEGRATION_BODY="$(mktemp)"
+trap 'rm -f "$INTEGRATION_BODY"' EXIT
 
 record() {
   local ok="$1" name="$2" detail="$3"
@@ -44,7 +46,7 @@ check_http() {
   local expect_body="${1:-}"
   local extra_header="${2:-}"
 
-  local curl_args=(-s -o /tmp/zice_integration_body -w '%{http_code}' -X "$method")
+  local curl_args=(-s -o "$INTEGRATION_BODY" -w '%{http_code}' -X "$method")
   [ -n "$extra_header" ] && curl_args+=(-H "$extra_header")
 
   local status
@@ -63,7 +65,7 @@ check_http() {
   fi
 
   if [ -n "$expect_body" ] && $ok; then
-    grep -q "$expect_body" /tmp/zice_integration_body 2>/dev/null || ok=false
+    grep -Fq "$expect_body" "$INTEGRATION_BODY" 2>/dev/null || ok=false
   fi
 
   record "$ok" "$name" "HTTP $status (expected $expect_status)"

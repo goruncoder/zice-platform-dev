@@ -4,6 +4,8 @@ These tickets are stored as markdown for offline reference and future import int
 
 **Note:** Files in this directory are **specifications only** (not implementation). Code changes belong in the repo named on each ticket (for example `goruncoder/zice-agent` for Phase 9).
 
+**AI agent context:** Platform architecture and per-repo guides live in [AGENTS.md](../../AGENTS.md) and [docs/templates/AGENTS/](../templates/AGENTS/). Sync into cloned repos with `make sync-agent-docs`.
+
 ## Completed (Phase 1 & 2)
 
 | Ticket | Title | Repo | Status |

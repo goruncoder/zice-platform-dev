@@ -1,0 +1,15 @@
+---
+description: zice-agent AI service conventions
+globs: repos/zice-agent/**/*.go
+alwaysApply: false
+---
+
+# zice-agent
+
+- **Port 8081.** Platform data only via `internal/client` zice-core HTTP client — not direct SQL on core tables.
+- Agent-owned tables only in `sql/migrations/`; apply with platform `make db-migrate-agent`.
+- New tools: implement in `internal/tools/`, register in router setup; use service key for core calls.
+- Chat uses SSE; match zice-core response patterns for non-stream JSON.
+- Rate limits and org middleware are required on protected routes — do not skip `RequireOrg`.
+
+Repo `AGENTS.md` (after `make sync-agent-docs`) documents env vars and layout.
