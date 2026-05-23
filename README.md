@@ -170,7 +170,7 @@ cd repos/zice-core && git checkout main
 | `make db-migrate` | Apply pending migrations only (requires DB running + auth stub from a prior `make seed`) |
 | `make db-reset` | Drop `public` schema and re-run migrations (use `make seed` afterward on a fresh DB) |
 
-### Integration tests
+### Integration test commands
 
 | Command | Description |
 |---------|-------------|

@@ -116,6 +116,7 @@ Admin pages show active items by default. "Show archived" toggle reveals soft-de
 ## Route Groups
 
 ### `(auth)` — Public auth pages
+
 | Route | Page | Description |
 |---|---|---|
 | `/login` | LoginForm + OAuthButtons | Email/password + magic link + Google OAuth |
@@ -124,6 +125,7 @@ Admin pages show active items by default. "Show archived" toggle reveals soft-de
 | `/invite/[token]` | Invite acceptance | Join org via invite link |
 
 ### `(protected)` — Authenticated pages
+
 | Route | Page | Description |
 |---|---|---|
 | `/dashboard` | Dashboard | Home with links to Admin, Security, Roster Auditor |
@@ -135,6 +137,7 @@ Admin pages show active items by default. "Show archived" toggle reveals soft-de
 | `/settings/security` | Security settings | Change password + manage passkeys |
 
 ### Tools
+
 | Route | Page | Description |
 |---|---|---|
 | `/tools/roster-auditor` | Roster Auditor | CSV upload, audit, export (client-side processing) |
