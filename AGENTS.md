@@ -18,6 +18,8 @@
 
 **Cursor rules:** [.cursor/rules/](.cursor/rules/) — platform invariants, tenant/auth, and per-repo conventions when `repos/` is cloned.
 
+**Cursor skill:** [.cursor/skills/zice-platform-context/](.cursor/skills/zice-platform-context/) — cross-repo onboarding checklist (invoke when working across services).
+
 ## Quick Reference
 
 | What | Command |
@@ -36,7 +38,7 @@
 | Clone repos | `make clone` |
 | Sync AGENTS.md into clones | `make sync-agent-docs` |
 | Update repos to latest main | `make update` |
-| Checkout a PR locally | `make checkout-pr REPO=zice-core PR=15` |
+| Checkout a PR locally | `make checkout-pr REPO=zice-core PR=15` (also `zice-frontend`, `zice-agent`) |
 | Install deps | `make install` |
 | Apply DB migrations | `make db-migrate` |
 | Reset DB | `make db-reset` |

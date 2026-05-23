@@ -32,6 +32,8 @@ Full-stack local development environment for the Zice multi-tenant sports manage
 | `zice-agent` | AI assistant (chat + tools against core API) | https://github.com/goruncoder/zice-agent |
 | `zice-platform-dev` | This repo — dev environment orchestration | https://github.com/goruncoder/zice-platform-dev |
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow, doc updates, and agent context (`AGENTS.md` templates).
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2+

@@ -170,6 +170,7 @@ clone: ## Clone all service repos
 		echo "zice-agent already cloned"; \
 	fi
 	@$(MAKE) sync-repos
+	@$(MAKE) --no-print-directory sync-agent-docs
 
 sync-agent-docs: ## Copy AGENTS.md templates into cloned service repos
 	@chmod +x scripts/sync-agent-docs.sh
@@ -202,17 +203,25 @@ update: clone ## Pull latest main for all service repos
 	@cd $(CORE_DIR) && git checkout main && git pull origin main
 	@echo "Updating zice-frontend..."
 	@cd $(FRONTEND_DIR) && git checkout main && git pull origin main
+	@if [ -d "$(AGENT_DIR)/.git" ]; then \
+		echo "Updating zice-agent..."; \
+		cd $(AGENT_DIR) && git checkout main && git pull origin main; \
+	fi
 	@echo "All repos updated to latest main."
 
 checkout-pr: ## Checkout a PR branch for local testing (usage: make checkout-pr REPO=zice-core PR=15)
 	@if [ -z "$(REPO)" ] || [ -z "$(PR)" ]; then \
-		echo "Usage: make checkout-pr REPO=<zice-core|zice-frontend> PR=<number>"; \
+		echo "Usage: make checkout-pr REPO=<zice-core|zice-frontend|zice-agent> PR=<number>"; \
 		echo ""; \
 		echo "Examples:"; \
 		echo "  make checkout-pr REPO=zice-core PR=15"; \
 		echo "  make checkout-pr REPO=zice-frontend PR=8"; \
+		echo "  make checkout-pr REPO=zice-agent PR=7"; \
 		exit 1; \
 	fi
+	@case "$(REPO)" in zice-core|zice-frontend|zice-agent) ;; \
+		*) echo "Error: REPO must be zice-core, zice-frontend, or zice-agent"; exit 1;; \
+	esac
 	@echo "Fetching PR #$(PR) for $(REPO)..."
 	@cd $(REPOS_DIR)/$(REPO) && git fetch origin pull/$(PR)/head && git checkout -B pr-$(PR) FETCH_HEAD
 	@echo "Checked out PR #$(PR) on $(REPO). Run 'make install' to update dependencies."

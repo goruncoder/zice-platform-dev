@@ -85,7 +85,7 @@ See `.env.example`. Critical vars:
 |---|---|
 | `PORT` | Listen port (default `8081`) |
 | `DATABASE_URL` | PostgreSQL for ai_* tables — use port `54322` with [zice-platform-dev](https://github.com/goruncoder/zice-platform-dev) Docker Postgres (see `.env.example`) |
-| `SUPABASE_URL` / `SUPABASE_JWT_SECRET` | JWT validation (same auth as frontend/core) |
+| `SUPABASE_URL` / `SUPABASE_JWT_SECRET` | JWT validation — use `http://localhost:54321` with Supabase CLI or values from zice-platform-dev `.env.example` |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | LLM provider |
 | `ZICE_CORE_URL` / `ZICE_CORE_SERVICE_KEY` | Service-to-service core API |
 | `CORS_ALLOWED_ORIGINS` | Typically `http://localhost:3000` in dev |
