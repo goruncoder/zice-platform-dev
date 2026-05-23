@@ -1,0 +1,27 @@
+---
+description: Zice platform-wide invariants for all repos
+alwaysApply: true
+---
+
+# Zice platform invariants
+
+## Ticket prefixes (docs/tickets in zice-platform-dev)
+
+| Prefix | Repo |
+|--------|------|
+| `C*` | zice-core |
+| `F*` | zice-frontend |
+| `A*` | zice-agent (+ related frontend) |
+| `L*` | League features (often core + frontend) |
+| `X*` | Cross-repo |
+
+## Data & security
+
+- **Multi-tenant context:** API calls use `x-org-slug` (and validated org membership). Do not bypass tenant middleware.
+- **Auth:** Supabase issues JWTs; Go services validate JWTs — they do not implement password storage.
+- **RLS:** Platform tables use PostgreSQL RLS in migrations. New tables need policies in the same migration.
+- **Soft delete:** Prefer `deleted_at` + restore endpoints; default lists exclude deleted rows.
+
+## Cross-repo changes
+
+When adding a service boundary, env var, or migration path, update **zice-platform-dev** `docs/ARCHITECTURE.md` and the relevant `AGENTS.md` (templates under `docs/templates/AGENTS/`).

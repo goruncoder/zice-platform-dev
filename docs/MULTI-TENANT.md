@@ -100,7 +100,7 @@ https://jolietjaguars.org  →  CNAME to zice.io  →  org slug: joliet-jaguars
 
 The Next.js middleware runs on every request and:
 
-1. Skips static paths (`/_next/`, `/favicon.ico`, `/logo.svg`, `/api/`)
+1. Skips static paths (`/_next/`, `/favicon.ico`, `/images/`, `/logo.svg`, `/api/`)
 2. Refreshes the Supabase auth session
 3. Redirects unauthenticated users to `/login` (except public paths)
 4. Parses the hostname for tenant context

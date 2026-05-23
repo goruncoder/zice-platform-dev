@@ -2,6 +2,10 @@
 
 These tickets are stored as markdown for offline reference and future import into Linear (or another project management tool).
 
+**Note:** Files in this directory are **specifications only** (not implementation). Code changes belong in the repo named on each ticket (for example `goruncoder/zice-agent` for Phase 9).
+
+**AI agent context:** Platform architecture and per-repo guides live in [AGENTS.md](../../AGENTS.md) and [docs/templates/AGENTS/](../templates/AGENTS/). Sync into cloned repos with `make sync-agent-docs`.
+
 ## Completed (Phase 1 & 2)
 
 | Ticket | Title | Repo | Status |
@@ -35,6 +39,28 @@ These tickets are stored as markdown for offline reference and future import int
 | [F7](F7-admin-dashboard-players.md) | Admin Dashboard — layout + players CRUD | zice-frontend | Pending | Medium |
 | [F8](F8-admin-guardians-staff.md) | Admin Dashboard — guardians + staff CRUD | zice-frontend | Pending | Medium |
 | [F9](F9-admin-audit-log-viewer.md) | Admin Dashboard — audit log viewer | zice-frontend | Pending | Medium |
+
+## Phase 9 — AI Agent (zice-agent + frontend)
+
+Implementation: [zice-agent](https://github.com/goruncoder/zice-agent) (backend) and [zice-frontend](https://github.com/goruncoder/zice-frontend) (UI). Local stack: `make dev-all` in zice-platform-dev.
+
+| Ticket | Title | Repo | Status |
+|---|---|---|---|
+| [A1](A1-scaffold-auth-db-schema.md) | Scaffold + auth + DB schema | zice-agent | Spec |
+| [A2](A2-agent-engine-tool-framework.md) | Agent engine + tool framework | zice-agent | Spec |
+| [A3](A3-chat-api-conversation-crud.md) | Chat API + conversation CRUD | zice-agent | Spec |
+| [A4](A4-schedule-game-tools.md) | Schedule & game tools | zice-agent | Spec |
+| [A5](A5-roster-compliance-tools.md) | Roster & compliance tools | zice-agent | Spec |
+| [A6](A6-communication-admin-tools.md) | Communication + admin tools | zice-agent | Spec |
+| [A7](A7-chat-widget-frontend.md) | Chat widget (frontend) | zice-frontend | Spec |
+| [A8](A8-conversation-management-ui.md) | Conversation management UI | zice-frontend | Spec |
+| [A9](A9-admin-ai-settings-ui.md) | Admin AI settings UI | zice-frontend | Spec |
+
+```
+A1 ──► A2 ──► A3 ──► A4 / A5 / A6
+              └──► A7 ──► A8
+A3 / A6 ──► A9
+```
 
 ## Dependency Graph
 

@@ -29,6 +29,7 @@ Full-stack local development environment for the Zice multi-tenant sports manage
 |------|---------|-----|
 | `zice-core` | Go REST API backend | https://github.com/goruncoder/zice-core |
 | `zice-frontend` | Next.js frontend | https://github.com/goruncoder/zice-frontend |
+| `zice-agent` | AI assistant (chat + tools against core API) | https://github.com/goruncoder/zice-agent |
 | `zice-platform-dev` | This repo — dev environment orchestration | https://github.com/goruncoder/zice-platform-dev |
 
 ## Prerequisites
@@ -44,15 +45,22 @@ Full-stack local development environment for the Zice multi-tenant sports manage
 # 1. Clone this repo and all service repos
 make clone
 
-# 2. Copy environment template
+# 2. Install dependencies
+make install
+
+# 3. Copy environment template
 cp .env.example .env
 # Edit .env with your Supabase credentials (see Configuration below)
 
-# 3. Start everything
-make dev
+# 4. Start the stack (database must be running before seed/migrate)
+make dev-all
 
-# 4. Verify
+# 5. Initialize database schema and test data
+make seed
+
+# 6. Verify
 make status
+make integration
 ```
 
 The following services will be available:
@@ -91,6 +99,8 @@ cp .env.example .env
 | `API_URL` | Backend API URL (frontend uses this) | `http://localhost:8080` |
 | `FRONTEND_URL` | Frontend URL | `http://localhost:3000` |
 | `CORS_ORIGINS` | Comma-separated allowed CORS origins | `http://localhost:3000` |
+| `NEXT_PUBLIC_LOGO_URL` | Full logo image path or URL (frontend) | `/images/logo-full.png` |
+| `NEXT_PUBLIC_LOGO_ICON_URL` | Header icon logo path or URL (frontend) | `/images/logo-icon.png` |
 
 ## Makefile Commands
 
@@ -98,7 +108,9 @@ cp .env.example .env
 
 | Command | Description |
 |---------|-------------|
-| `make dev` | Start all services (frontend + backend + database) |
+| `make dev-all` | Start full stack (database + backend + frontend + agent) |
+| `make dev` | Start database + backend + frontend (no agent) |
+| `make dev-agent` | Start only the agent (foreground) |
 | `make dev-frontend` | Start only the frontend |
 | `make dev-backend` | Start only the backend |
 | `make stop` | Stop all running services |
@@ -128,6 +140,8 @@ cp .env.example .env
 | `make update` | Pull latest `main` for all service repos (clones first if needed) |
 | `make checkout-pr REPO=<name> PR=<number>` | Checkout a PR branch for local testing |
 | `make install` | Install dependencies for all repos |
+| `make sync-repos` | Pull configured branches for all service repos |
+| `make seed` | Initialize DB (auth stub + migrations + test data) |
 | `make clean` | Remove build artifacts and dependencies |
 | `make smoke` | Run smoke tests against local services |
 
@@ -152,8 +166,80 @@ cd repos/zice-core && git checkout main
 
 | Command | Description |
 |---------|-------------|
-| `make db-migrate` | Run pending database migrations |
-| `make db-reset` | Reset database and re-run all migrations |
+| `make seed` | Create local `auth` stub, apply migrations, load test org/users |
+| `make db-migrate` | Apply pending migrations only (requires DB running + auth stub from a prior `make seed`) |
+| `make db-reset` | Drop `public` schema and re-run migrations (use `make seed` afterward on a fresh DB) |
+
+### Integration test commands
+
+| Command | Description |
+|---------|-------------|
+| `make integration` | Stack health checks (DB schema, API, frontend, env wiring) |
+| `make integration-roles` | Login as each seeded user and verify role-based API access |
+| `make integration-all` | Run both integration targets |
+| `make integration-ci` | Bootstrap stack, seed, run all integration tests, then stop |
+
+## Database setup
+
+Local PostgreSQL runs in Docker (port **54322**). Migrations in `zice-core` reference Supabase's `auth.users` table, which does not exist in plain Postgres. **`make seed`** creates a minimal `auth` schema stub, runs migrations, and loads the Joliet Jaguars test org (players, games, admin/coach/parent users).
+
+### First-time setup
+
+Start the database **before** seeding:
+
+```bash
+make dev-all    # or: make dev
+make seed
+```
+
+Use **`make seed`**, not `make db-migrate && make seed`. On a fresh database, `db-migrate` alone fails because the `auth` schema is missing; `seed` creates that stub first, then applies migrations.
+
+### Resetting a broken or partial schema
+
+If migrations were applied out of order (for example `db-migrate` ran while Docker was stopped), you may see missing tables such as `public.organizations`:
+
+```bash
+make db-reset   # drops public schema only
+make seed       # recreates auth stub, migrations, and test data
+```
+
+### When to use `make db-migrate` alone
+
+Use `make db-migrate` only when:
+
+- The database container is already running (`make dev` / `make dev-all`), and
+- You have already run `make seed` at least once (so the `auth` stub exists)
+
+For day-to-day work after the initial setup, `make db-migrate` applies new SQL from `repos/zice-core/supabase/migrations/` after you `make sync-repos`.
+
+### Test accounts
+
+After `make seed`, local logins use password **`password123`** (set `DEV_AUTH_ENABLED=true` in `.env`):
+
+| Email | Role |
+|-------|------|
+| `admin@jolietjaguars.org` | Org admin |
+| `coach@jolietjaguars.org` | Team admin (coach) |
+| `parent@jolietjaguars.org` | Parent / guardian |
+| `viewer@jolietjaguars.org` | Read-only viewer |
+
+## Integration tests
+
+Integration tests expect the full stack to be running and the database to be seeded:
+
+```bash
+make dev-all
+make seed
+make integration-all
+```
+
+Or run a one-shot bootstrap (starts DB, migrates, seeds, starts API/frontend, runs tests, then stops):
+
+```bash
+make integration-ci
+```
+
+If tests fail with `public.organizations not found`, the schema was never applied correctly — run `make db-reset && make seed` and try again.
 
 ## Project Structure
 

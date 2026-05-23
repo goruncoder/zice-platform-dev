@@ -1,0 +1,14 @@
+---
+description: zice-core Go API conventions
+globs: repos/zice-core/**/*.go
+alwaysApply: false
+---
+
+# zice-core
+
+- Register routes in `internal/api/router.go` in the correct tier: public, protected (`middleware.Auth`), or tenant (`middleware.Tenant`).
+- Use `internal/api/response` for `{data, error, meta}` envelopes.
+- New entities: domain model → handler → router → migration + RLS → tests → `make check`.
+- Migrations: `supabase/migrations/` with sequential timestamps; include RLS in the same file when adding tables.
+
+Repo `AGENTS.md` (after `make sync-agent-docs`) has route and middleware details.

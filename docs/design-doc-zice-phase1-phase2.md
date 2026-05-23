@@ -1047,7 +1047,13 @@ export const platformConfig = {
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.zice.io',
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? 'support@zice.io',
   branding: {
-    logoUrl: process.env.NEXT_PUBLIC_LOGO_URL ?? '/logo.svg',
+    logoUrl: process.env.NEXT_PUBLIC_LOGO_URL ?? '/images/logo-full.png',
+    logoIconUrl:
+      process.env.NEXT_PUBLIC_LOGO_ICON_URL ??
+      process.env.NEXT_PUBLIC_LOGO_URL ??
+      '/images/logo-icon.png',
+    logoWidth: 141,
+    logoHeight: 77,
     primaryColor: process.env.NEXT_PUBLIC_PRIMARY_COLOR ?? '#0F172A',
     accentColor: process.env.NEXT_PUBLIC_ACCENT_COLOR ?? '#3B82F6',
   },
