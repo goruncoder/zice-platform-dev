@@ -2,6 +2,22 @@
 
 > Development environment orchestrator for the Zice platform. Coordinates zice-core (Go backend), zice-frontend (Next.js), and zice-agent (AI assistant) for local development and testing.
 
+## Read this first
+
+| If you are… | Start here |
+|---|---|
+| New to the platform | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — services, ports, request flows |
+| Implementing auth / JWT | [docs/AUTH.md](docs/AUTH.md) |
+| Working on subdomains / custom domains | [docs/MULTI-TENANT.md](docs/MULTI-TENANT.md) |
+| Calling or changing APIs | [docs/API.md](docs/API.md) |
+| Picking up a ticket | [docs/tickets/](docs/tickets/) (`C*` core, `F*` frontend, `A*` agent, `L*` league) |
+| Editing a service repo | Run `make sync-agent-docs` after clone; see `repos/<service>/AGENTS.md` |
+| Full product / schema design | [docs/design-doc-zice-phase1-phase2.md](docs/design-doc-zice-phase1-phase2.md) |
+
+**Agent context in service repos:** Canonical files live in [docs/templates/AGENTS/](docs/templates/AGENTS/). Sync into clones with `make sync-agent-docs` (commit the same content in each service repo when templates change).
+
+**Cursor rules:** [.cursor/rules/](.cursor/rules/) — platform invariants, tenant/auth, and per-repo conventions when `repos/` is cloned.
+
 ## Quick Reference
 
 | What | Command |
@@ -18,6 +34,7 @@
 | Run all linters | `make lint` |
 | Pre-merge gate | `make check` (lint + test across all repos) |
 | Clone repos | `make clone` |
+| Sync AGENTS.md into clones | `make sync-agent-docs` |
 | Install deps | `make install` |
 | Apply DB migrations | `make db-migrate` |
 | Reset DB | `make db-reset` |
@@ -71,7 +88,7 @@ make dev
 | [zice-frontend](https://github.com/goruncoder/zice-frontend) | TypeScript/Next.js 15 | Web frontend | 3000 |
 | [zice-agent](https://github.com/goruncoder/zice-agent) | Go 1.25 | AI chat / tool-calling service | 8081 |
 
-Each repo has its own `AGENTS.md` with detailed context. Refer to those for repo-specific guidance.
+Each service repo has its own `AGENTS.md` (maintained from `docs/templates/AGENTS/`). After `make clone`, run `make sync-agent-docs` so local copies match the platform templates.
 
 `make db-migrate` applies SQL from both `zice-core/supabase/migrations/` and `zice-agent/sql/migrations/`.
 

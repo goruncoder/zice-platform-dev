@@ -1,6 +1,6 @@
 .PHONY: dev dev-all dev-frontend dev-backend dev-agent _start-agent stop teardown teardown-volumes restart status logs logs-frontend logs-backend logs-agent \
        test test-frontend test-backend test-agent lint lint-frontend lint-backend lint-agent check \
-       integration integration-ci integration-roles integration-all test-full test-full-with-teardown seed clone sync-repos setup _require-repos install clean smoke db-migrate db-migrate-agent db-reset
+       integration integration-ci integration-roles integration-all test-full test-full-with-teardown seed clone sync-repos sync-agent-docs setup _require-repos install clean smoke db-migrate db-migrate-agent db-reset
 
 REPOS_DIR := repos
 CORE_DIR := $(REPOS_DIR)/zice-core
@@ -169,6 +169,10 @@ clone: ## Clone all service repos
 		echo "zice-agent already cloned"; \
 	fi
 	@$(MAKE) sync-repos
+
+sync-agent-docs: ## Copy AGENTS.md templates into cloned service repos
+	@chmod +x scripts/sync-agent-docs.sh
+	@./scripts/sync-agent-docs.sh
 
 sync-repos: ## Checkout configured branches in service repos
 	@echo "Syncing zice-core to $(CORE_BRANCH)..."
