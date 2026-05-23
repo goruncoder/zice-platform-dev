@@ -10,6 +10,20 @@
 
 Communication tools and admin configuration endpoints for the AI agent.
 
+## API scope (vs A3 chat)
+
+Chat streaming and conversation CRUD live in **A3** (`handlers/chat.go`, `handlers/conversations.go`). This ticket owns **tools** plus **admin/audit HTTP** below.
+
+| Method | Path | Auth | Request / response |
+|---|---|---|---|
+| GET | `/api/v1/admin/config` | Org admin | Returns `{ enabled, monthly_budget_cents, model, retention_days }`. |
+| PUT | `/api/v1/admin/config` | Org admin | Body: same shape; updates org AI settings. |
+| GET | `/api/v1/admin/usage` | Org admin | Query: `?period=month`; returns token/cost aggregates and top users. |
+| GET | `/api/v1/admin/conversations` | Org admin | Query: `?user_id=&from=&to=`; paginated audit list (no message bodies in list). |
+| GET | `/api/v1/platform/ai/usage` | Platform admin | Cross-org usage summary (platform_admin role only). |
+
+Suggested prompts (`GET /api/v1/suggestions?role=coach`) are implemented in **A2** (`suggestions.go`), not here.
+
 ## Details
 
 - `internal/tools/communication.go` — Communication tools

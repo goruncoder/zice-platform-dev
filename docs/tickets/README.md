@@ -2,6 +2,8 @@
 
 These tickets are stored as markdown for offline reference and future import into Linear (or another project management tool).
 
+**Note:** Files in this directory are **specifications only** (not implementation). Code changes belong in the repo named on each ticket (for example `goruncoder/zice-agent` for Phase 9).
+
 ## Completed (Phase 1 & 2)
 
 | Ticket | Title | Repo | Status |
