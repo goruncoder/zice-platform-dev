@@ -31,9 +31,9 @@ dev: ## Start DB, backend, and frontend
 	docker compose up -d --wait
 	@$(MAKE) --no-print-directory _require-repos
 	@echo "Starting backend..."
-	@(set -a && [ -f .env ] && . ./.env; set +a; cd $(CORE_DIR) && go run ./cmd/server) > $(LOG_DIR)/backend.log 2>&1 & echo $$! > $(BACKEND_PID)
+	@(cd $(CORE_DIR) && exec go run ./cmd/server) > $(LOG_DIR)/backend.log 2>&1 & echo $$! > $(BACKEND_PID)
 	@echo "Starting frontend..."
-	@(set -a && [ -f .env ] && . ./.env; set +a; cd $(FRONTEND_DIR) && npm run dev) > $(LOG_DIR)/frontend.log 2>&1 & echo $$! > $(FRONTEND_PID)
+	@(cd $(FRONTEND_DIR) && exec npm run dev) > $(LOG_DIR)/frontend.log 2>&1 & echo $$! > $(FRONTEND_PID)
 	@echo ""
 	@echo "Services starting:"
 	@echo "  Frontend:  http://localhost:3000"

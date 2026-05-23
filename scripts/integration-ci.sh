@@ -30,9 +30,9 @@ make db-migrate
 
 echo "Starting backend and frontend..."
 mkdir -p .logs
-(set -a && . ./.env && set +a && cd repos/zice-core && go run ./cmd/server) > .logs/backend.log 2>&1 &
+(cd repos/zice-core && exec go run ./cmd/server) > .logs/backend.log 2>&1 &
 echo $! > .logs/backend.pid
-(set -a && . ./.env && set +a && cd repos/zice-frontend && npm run dev) > .logs/frontend.log 2>&1 &
+(cd repos/zice-frontend && exec npm run dev) > .logs/frontend.log 2>&1 &
 echo $! > .logs/frontend.pid
 
 wait_for_url() {

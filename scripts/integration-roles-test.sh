@@ -17,10 +17,8 @@ BACKEND_URL="${BACKEND_URL%/}"
 TEST_USERS="${ROOT_DIR}/scripts/seed/test-users.json"
 PASSWORD="${TEST_PASSWORD:-password123}"
 
-ORG_ID="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['organization']['id'])")"
-ORG_SLUG="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['organization']['slug'])")"
-TEAM="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['team']['designation'])")"
-SEASON="$(python3 -c "import json; print(json.load(open('$TEST_USERS'))['team']['season'])")"
+IFS='|' read -r ORG_ID ORG_SLUG TEAM SEASON < <(python3 -c "import json; d=json.load(open('$TEST_USERS')); print(f\"{d['organization']['id']}|{d['organization']['slug']}|{d['team']['designation']}|{d['team']['season']}\")")
+TENANT_HEADER="x-org-slug: ${ORG_SLUG}"
 
 PASS=0
 FAIL=0
